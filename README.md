@@ -105,17 +105,15 @@ http://localhost:5001
 
 ### LandScape
 
-![Menu](<img width="1917" height="887" alt="image" src="https://github.com/user-attachments/assets/887b4e20-ad7b-48ba-98b0-8a21fdcf30d6" />
-)
+![Menu](https://github.com/Sky92-dev/Object-Oriented-Project-2024/blob/main/WebDemoImage/LandScape.png?raw=true)
 
 ### Menu
 
-![Basket](<img width="1851" height="862" alt="image" src="https://github.com/user-attachments/assets/8196e756-292e-4ec6-ae55-c555d79a7622" />
-)
+![Basket](https://github.com/Sky92-dev/Object-Oriented-Project-2024/blob/main/WebDemoImage/Menu.png?raw=true)
 
 ### Boxset
 
-![Order]()
+![Order](https://github.com/Sky92-dev/Object-Oriented-Project-2024/blob/main/WebDemoImage/Boxset.png?raw=true)
 
 ## 🎓 Course Project
 
