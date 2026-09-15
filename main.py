@@ -661,7 +661,7 @@ class PickedItem:
         return self.__quantity
     
     def increase_quantity(self, total: int):
-        self.__quantity += total
+        self.__quantity += int(total)
 
 
 class Basket:
@@ -695,13 +695,13 @@ class Basket:
 
     
     def add_basket_item(self, item, quantity: int):
-        pickeditem = PickedItem(item, quantity)
+        pickeditem = PickedItem(item, int(quantity))
 
         if (isinstance(item,Boxset)) or (isinstance(item,Food)):
             check_exist = self.check_exist(item)
 
             if isinstance (check_exist,PickedItem):
-                check_exist.increase_quantity(quantity)  # เพิ่มจำนวนถ้ามีอยู่แล้ว
+                check_exist.increase_quantity(int(quantity))  # เพิ่มจำนวนถ้ามีอยู่แล้ว
                 return "Done"
 
             self.__items.append(pickeditem)
@@ -1886,7 +1886,7 @@ def update_basket_quantity(item_id: str, change: int, coupon_code: str = ""):
     basket = member.get_current_basket()
     if basket:
         basket.change_quantity(item_id, change)
-    return Redirect('/basket?' + urlencode({'coupon_code': coupon_code}))
+    return Redirect('/basket?' + urlencode({'coupon_code': coupon_code}) if coupon_code else '/basket')
 
 
 @rt("/basket")
