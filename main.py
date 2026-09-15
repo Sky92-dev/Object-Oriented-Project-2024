@@ -595,7 +595,6 @@ class Member(Account):
 
     def make_new_order(self):
         self.__current_basket = Basket()
-        self.__order_type = None
 
     def change_password(self, old_password, new_password):
         if old_password == self.__password:
@@ -1506,245 +1505,151 @@ def post_food(food_id: str, select_menu: dict):
     return Redirect("/menu")  # ✅ เปลี่ยนไปหน้ารายการเมนูอาหาร
 
 @rt("/")
-def get():
-    grid_content = [
-        navbar(),  # เรียกใช้ Navbar
-        order_section(),  # เรียกใช้ Order Section
-    ]
-    
-    # ตั้งค่า CSS สำหรับฟอนต์และสไตล์ของปุ่ม
-    button_style = {
-        "background": "linear-gradient(135deg, #e83120, #ff6347)",  # สีพื้นหลังที่เป็นการไล่สี
-        "border": "2px solid #8B0000",  # กำหนดเส้นขอบสีแดงเข้ม
-        "border-radius": "50%",  # ให้ปุ่มเป็นวงกลม
-        "color": "#ffebeb",  # สีของข้อความในปุ่ม
-        "font-size": "16px",  # ขนาดตัวอักษร
-        "cursor": "pointer",  # เปลี่ยนเป็นรูปมือเมื่อชี้
-        "padding": "0px",  # ช่องว่างภายในปุ่ม
-        "width": "40px",  # ความกว้าง
-        "height": "40px",  # ความสูง
-        "text-align": "center",  # จัดข้อความให้อยู่กลาง
-        "line-height": "40px",  # จัดข้อความให้อยู่กลางปุ่ม
-        "position": "absolute",  # ให้ปุ่มลอยอยู่บนภาพ
-        "transition": "all 0.3s ease-in-out",  # เพิ่มการเปลี่ยนแปลงแบบราบรื่น
-        "box-shadow": "0 4px 8px rgba(0, 0, 0, 0.3)",  # เพิ่มเงาใต้ปุ่ม
-        "font-family": "'K2D', sans-serif",  # กำหนดฟอนต์
-    }
-    
-    grid_content.append(
+def home_page():
+    featured = system.get_boxset_list()[:3]
+    if not featured:
+        featured = system.get_menu_list()[:3]
+
+    hero_images = [(item.get_picture(), item.get_name()) for item in featured if item.get_picture()]
+    slide_count = len(hero_images)
+    hero_keyframes = []
+    for index in range(slide_count if slide_count > 1 else 0):
+        start = index * 100 / slide_count
+        hold = (index + .76) * 100 / slide_count
+        hero_keyframes.append(
+            f"{start:.4f}%, {hold:.4f}% {{ transform:translate3d(-{index * 100}%,0,0); }}")
+    hero_keyframes.append(f"100% {{ transform:translate3d(-{slide_count * 100 if slide_count > 1 else 0}%,0,0); }}")
+
+    def featured_card(item):
+        href = (f"/boxset/{item.get_boxset_id()}" if isinstance(item, Boxset)
+                else f"/food/{item.get_food_id()}")
+        return A(
+            Div(Span("OUR SERVICE", cls="home-photo-fallback"),
+                Img(src=item.get_picture(), alt=item.get_name(), loading="lazy",
+                    width="480", height="360", onerror="this.hidden=true"), cls="home-card-photo"),
+            Div(H3(item.get_name()),
+                Div(Strong(f"฿{item.get_price():,.0f}"), Span("เลือกเมนู ↗"), cls="home-card-bottom"),
+                cls="home-card-copy"), href=href, cls="home-card")
+
+    return (
+        Title("อร่อยได้ทุกวัน | OUR SERVICE"),
+        Style("@keyframes home-slides {" + "".join(hero_keyframes) + "}"),
+        Style("""
+            @import url('https://fonts.googleapis.com/css2?family=K2D:wght@400;500;600;700;800&display=swap');
+            body:has(.home-page) { margin:0; background:#faf8f4; }
+            .home-page { --red:#c92027; color:#25231f; font-family:'K2D',sans-serif; }
+            .home-page * { box-sizing:border-box; }
+            .home-page a { text-decoration:none; }
+            .home-page h1,.home-page h2,.home-page h3,.home-page p { margin:0; color:inherit; }
+            .home-header { background:white; border-bottom:1px solid #eee8de; padding:16px max(24px,calc((100% - 1200px)/2)); }
+            .home-header .site-navbar { gap:12px; }
+            .home-header button { margin:0; white-space:nowrap; font-family:inherit; }
+            .home-header .site-navbar > button:first-child { color:var(--red) !important; font-size:28px !important; padding-left:0 !important; letter-spacing:-1px; }
+            .home-header .site-navbar > div { gap:4px !important; }
+            .home-order > div { width:100% !important; max-width:100% !important; height:auto !important; min-height:64px; padding:12px 24px !important; gap:24px; background:#25231f !important; flex-wrap:wrap; }
+            .home-order h2,.home-order h5 { margin:0 !important; font-size:14px; letter-spacing:.5px; }
+            .home-order button { margin:0; font-family:inherit; font-size:14px !important; background:#fff !important; color:var(--red) !important; border-radius:6px; padding:8px 18px !important; }
+            .home-shell { max-width:1256px; margin:auto; padding:36px 28px 64px; }
+            .home-hero { display:grid; grid-template-columns:1fr 1.08fr; min-height:500px; overflow:hidden; border-radius:20px; background:#f0e9dc; }
+            .home-hero-copy { padding:54px 44px; display:flex; flex-direction:column; align-items:flex-start; justify-content:center; }
+            .home-eyebrow { color:var(--red) !important; font-size:12px; font-weight:700; letter-spacing:2px; margin-bottom:20px !important; }
+            .home-hero h1 { font-size:clamp(38px,4.5vw,64px); font-weight:800; line-height:1.2; letter-spacing:-2px; }
+            .home-hero h1 span { color:var(--red); }
+            .home-intro { color:#686054 !important; font-size:17px; line-height:1.8; margin-top:22px !important; max-width:360px; }
+            .home-actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:30px; }
+            .home-primary,.home-secondary { display:inline-flex; align-items:center; justify-content:center; gap:26px; padding:14px 24px; border-radius:7px; font-weight:600; font-size:15px; }
+            .home-primary { background:var(--red); color:white !important; }
+            .home-secondary { border:1px solid #c7bdae; color:#25231f !important; }
+            .home-primary:hover { background:#a71920; }
+            .home-secondary:hover { background:#e5dccb; }
+            .home-hero-art { position:relative; background:#a71721; min-height:340px; min-width:0; overflow:hidden; }
+            .home-hero-track { position:absolute; inset:0; display:flex; transform:translate3d(0,0,0); will-change:transform; animation:home-slides var(--slide-duration) cubic-bezier(.45,0,.2,1) infinite; }
+            .home-hero-slide { position:relative; flex:0 0 100%; height:100%; overflow:hidden; }
+            .home-hero-art img { width:100%; max-width:none; height:100%; object-fit:cover; object-position:center; display:block; position:absolute; inset:0; }
+            .home-hero-label { position:absolute; bottom:22px; left:22px; background:#fff8ec; color:#7a1820; padding:10px 18px; border-radius:6px; font-size:13px; font-weight:600; }
+            .home-steps { display:grid; grid-template-columns:repeat(3,1fr); padding:28px 0; border-bottom:1px solid #e3ddd3; margin-bottom:44px; gap:24px; }
+            .home-step { display:flex; align-items:center; gap:16px; }
+            .home-step > span { font-size:24px; font-weight:700; color:#bcada0; }
+            .home-step strong { display:block; font-size:15px; }
+            .home-step p { font-size:13px; color:#797168; margin-top:3px; }
+            .home-section-title { display:flex; justify-content:space-between; align-items:end; gap:20px; margin-bottom:24px; }
+            .home-section-title .home-eyebrow { margin-bottom:8px !important; }
+            .home-section-title h2 { font-size:30px; font-weight:700; letter-spacing:-.5px; }
+            .home-section-title > a { color:var(--red); font-size:14px; white-space:nowrap; }
+            .home-cards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:22px; }
+            .home-card { display:block; overflow:hidden; background:white; border:1px solid #e7e1d8; border-radius:12px; color:#25231f; transition:transform .2s,box-shadow .2s; }
+            .home-card:hover { transform:translateY(-4px); box-shadow:0 10px 24px #392a1410; color:#25231f; }
+            .home-card-photo { position:relative; aspect-ratio:1.55; background:#f2eee8; display:grid; place-items:center; }
+            .home-photo-fallback { color:#ac9d8e; font-weight:700; letter-spacing:2px; font-size:14px; }
+            .home-card-photo img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block; }
+            .home-card-copy { padding:22px; }
+            .home-card h3 { font-size:20px; line-height:1.4; }
+            .home-card-bottom { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:20px; }
+            .home-card-bottom strong { color:var(--red); font-size:23px; }
+            .home-card-bottom span { font-size:13px; color:#746a60; }
+            .home-footer { max-width:1200px; margin:auto; border-top:1px solid #e3ddd3; padding:26px 0; display:flex; justify-content:space-between; gap:18px; color:#84796d; font-size:12px; }
+            .home-footer strong { color:var(--red); letter-spacing:1px; }
+            .home-page a:focus-visible,.home-page button:focus-visible { outline:3px solid #dc9235; outline-offset:5px; }
+            @media(max-width:850px) {
+                .home-hero-copy { padding:36px 28px; }
+                .home-hero { min-height:440px; }
+                .home-header { padding:14px 20px; }
+                .home-header .site-navbar { flex-wrap:wrap; gap:0; }
+                .home-header .site-navbar > button:first-child { font-size:24px !important; }
+                .home-header .site-navbar button { padding:8px 10px !important; font-size:13px !important; }
+                .home-footer { margin:0 28px; }
+            }
+            @media(max-width:600px) {
+                .home-shell { padding:20px 18px 36px; }
+                .home-header .site-navbar > div { width:100%; justify-content:flex-end; }
+                .home-order > div { gap:10px; padding:12px 16px !important; }
+                .home-order h5 { font-size:11px; }
+                .home-hero { grid-template-columns:1fr; border-radius:12px; }
+                .home-hero-copy { padding:32px 24px; }
+                .home-hero h1 { font-size:44px; }
+                .home-hero-art { min-height:280px; }
+                .home-steps { grid-template-columns:1fr; gap:20px; margin-bottom:30px; }
+                .home-section-title h2 { font-size:25px; }
+                .home-cards { grid-template-columns:1fr; gap:18px; }
+                .home-footer { margin:0 18px; flex-wrap:wrap; }
+            }
+            @media(prefers-reduced-motion:reduce) {
+                .home-card { transition:none; }
+                .home-hero-track { animation:none; will-change:auto; }
+            }
+        """),
         Div(
-            Img(id="image", src="https://downloads.ctfassets.net/n4pc9wlortyn/7Hi5tth6sQ1MMpOfDivJPr/477ea208c5ac40e615f0131d9ec4a0cf/Buldak_Sauce_Mar25_Desktop_2880x1740.png"),  # เริ่มต้นแสดงภาพแรก
-            Div(
-                Button("01", onclick="changeImage(1);", style={**button_style, "bottom": "45px", "left": "70px"}),
-                Button("02", onclick="changeImage(2);", style={**button_style, "bottom": "45px", "left": "130px"}),
-                Button("03", onclick="changeImage(3);", style={**button_style, "bottom": "45px", "left": "190px"}),
-                Button("04", onclick="changeImage(4);", style={**button_style, "bottom": "45px", "left": "250px"}),
-                cls="button-container",
-                style={ 
-                    "position": "relative",  # กำหนดให้ container ของปุ่มเป็นตำแหน่ง relative
-                    "width": "100%",  # ให้ container กว้างเต็ม
-                    "height": "100%"  # ให้ container สูงเต็ม
-                }
-            ),
-            # เพิ่ม div สำหรับแสดงคำพูด
-            Div(id="text-content-1",  # ตั้งชื่อ id ของข้อความที่ 1
-                style={ 
-                    "position": "absolute", 
-                    "bottom": "180px", 
-                    "left": "50px", 
-                    "color": "white", 
-                    "font-size": "70px", 
-                    "font-family": "'K2D', sans-serif",  # ใช้ฟอนต์ K2D
-                    "font-weight": "600"
-                }, 
-                children=["บูลดัก ดังก์วิงซ์"]
-            ),
-            Div(id="text-content-2",  # ตั้งชื่อ id ของข้อความที่ 2
-                style={ 
-                    "position": "absolute", 
-                    "bottom": "180px", 
-                    "left": "70px", 
-                    "color": "white", 
-                    "font-size": "70px", 
-                    "font-family": "'K2D', sans-serif",  # ใช้ฟอนต์ K2D
-                    "font-weight": "600"
-                }, 
-                children=["ดีลผู้พัน แชร์กันวันพฤหัส"]  # เปลี่ยนข้อความที่สอง
-            ),
-            Div(id="text-content-3",  # ตั้งชื่อ id ของข้อความที่ 3
-                style={ 
-                    "position": "absolute", 
-                    "bottom": "180px", 
-                    "left": "50px", 
-                    "color": "white", 
-                    "font-size": "70px", 
-                    "font-family": "'K2D', sans-serif",  # ใช้ฟอนต์ K2D
-                    "font-weight": "600"
-                }, 
-                children=["ดีลลับวันอังคาร 10 ชิ้น 199 .-"]  # เปลี่ยนข้อความที่สาม
-            ),
-            Div(id="text-content-4",  # ตั้งชื่อ id ของข้อความที่ 4
-                style={ 
-                    "position": "absolute", 
-                    "bottom": "170px", 
-                    "left": "70px", 
-                    "color": "white", 
-                    "font-size": "70px", 
-                    "font-family": "'K2D', sans-serif",  # ใช้ฟอนต์ K2D
-                    "font-weight": "600"
-                }, 
-                children=["ชิคแอนด์แชร์ ชุดละ 99 .-"]  # เปลี่ยนข้อความที่สี่
-            ),
-            # ใส่ JavaScript เพื่อเปลี่ยนรูปภาพและคำพูด
-            Script("""
-                let currentIndex = 1;
-
-                function changeImage(choice) {
-                    var imageUrl = "";
-                    var textContent1 = "";
-                    var textContent2 = "";
-                    var textContent3 = "";
-                    var textContent4 = "";
-
-                    switch(choice) {
-                        case 1:
-                            imageUrl = "https://downloads.ctfassets.net/n4pc9wlortyn/7Hi5tth6sQ1MMpOfDivJPr/477ea208c5ac40e615f0131d9ec4a0cf/Buldak_Sauce_Mar25_Desktop_2880x1740.png";
-                            textContent1 = "บูลดัก ดังก์วิงซ์";
-                            break;
-                        case 2:
-                            imageUrl = "https://images.ctfassets.net/n4pc9wlortyn/1WdsRSUTMDM6rzLrXr9uxe/b19a227e4e93f4a1a73ebf6165e06eef/DV_THURSDAY_Mar25_Desktop_2880x1240.png";
-                            textContent2 = "ดีลผู้พัน<br>แชร์กันวันพฤหัส";
-                            break;
-                        case 3:
-                            imageUrl = "https://downloads.ctfassets.net/n4pc9wlortyn/2F3PSaIg8slNmrEkHmmhYz/57c4e2efd510616b0a296f27281f3366/DV_Tue_DESKTOP_IMAGE_2880x1260px.png";
-                            textContent3 = "ดีลลับวันอังคาร<br>10 ชิ้น 199 .-";
-                            break;
-                        case 4:
-                            imageUrl = "https://downloads.ctfassets.net/n4pc9wlortyn/5QekPE09zRFUAD9JmX4wUS/5bc5e6da51fd4d461c9f590ca4d1c11b/KFC_DEC_Campaign_Chick_n__Share_Web_and_App_Banner_2880x1260px.png";
-                            textContent4 = "ชิคแอนด์แชร์<br>ชุดละ 99 .-";
-                            break;
-                    }
-
-                    // ตั้งค่า opacity ของรูปให้เป็น 0 ก่อนการเปลี่ยนรูป
-                    document.getElementById("image").style.opacity = 0.7;  // ทำให้ภาพจางลงเล็กน้อย
-
-                    // รีเซ็ตแอนิเมชัน fade
-                    document.getElementById("text-content-1").style.animation = 'none';
-                    document.getElementById("text-content-2").style.animation = 'none';
-                    document.getElementById("text-content-3").style.animation = 'none';
-                    document.getElementById("text-content-4").style.animation = 'none';
-
-                    // เพิ่ม animation fade-out ก่อนที่จะเฟด in ข้อความใหม่
-                    document.getElementById("text-content-1").style.animation = 'fadeOut 2s ease-in-out';
-                    document.getElementById("text-content-2").style.animation = 'fadeOut 2s ease-in-out';
-                    document.getElementById("text-content-3").style.animation = 'fadeOut 2s ease-in-out';
-                    document.getElementById("text-content-4").style.animation = 'fadeOut 2s ease-in-out';
-
-                    // รีเฟรชแอนิเมชัน fade
-                    setTimeout(function() {
-                        // ตั้งค่า opacity ของรูปให้กลับมาเป็น 1 (ทำให้รูปค่อยๆ เฟดขึ้น)
-                        document.getElementById("image").src = imageUrl;
-                        document.getElementById("image").style.opacity = 1;  // กลับมาแสดงผลปกติ
-
-                        // รีสตาร์ทการแสดงข้อความใหม่ด้วย fade-in
-                        document.getElementById("text-content-1").style.animation = 'fadeIn 2s ease-in-out';
-                        document.getElementById("text-content-2").style.animation = 'fadeIn 2s ease-in-out';
-                        document.getElementById("text-content-3").style.animation = 'fadeIn 2s ease-in-out';
-                        document.getElementById("text-content-4").style.animation = 'fadeIn 2s ease-in-out';
-
-                        // อัพเดตข้อความ
-                        document.getElementById("text-content-1").innerText = textContent1;
-                        document.getElementById("text-content-2").innerHTML = textContent2;
-                        document.getElementById("text-content-3").innerHTML = textContent3;
-                        document.getElementById("text-content-4").innerHTML = textContent4;
-
-                    }, 1000);  // ตั้งเวลาให้มีช่วงเวลารอประมาณ 1 วินาที ก่อนเริ่มเฟด
-
-                    // เพิ่ม delay ให้ข้อความถัดไป
-                    setTimeout(function() {
-                        document.getElementById("text-content-2").style.animation = 'fadeIn 1s ease-in-out';
-                        document.getElementById("text-content-3").style.animation = 'fadeIn 1s ease-in-out';
-                        document.getElementById("text-content-4").style.animation = 'fadeIn 1s ease-in-out';
-                    }, 3000);  // เพิ่ม delay 2 วินาที ก่อนแสดงข้อความที่ 2-4
-                }
-
-                changeImage(currentIndex);
-                setInterval(function() {
-                    currentIndex = (currentIndex % 4) + 1;  // ให้เลือกเป็นลำดับที่ 1-4
-                    changeImage(currentIndex);
-                }, 6000);  // ทุก 5000 มิลลิวินาที (5 วินาที)
-            """),
-            Style("""
-                @import url('https://fonts.googleapis.com/css2?family=K2D:wght@400;500;600&display=swap');
-                
-                html, body {
-                    background: white;
-                }
-
-                /* @keyframes สำหรับการเฟดข้อความ */
-                @keyframes fadeIn {
-                    0% {
-                        opacity: 0;
-                    }
-                    100% {
-                        opacity: 1;
-                    }
-                }
-
-                @keyframes fadeOut {
-                    0% {
-                        opacity: 1;
-                    }
-                    100% {
-                        opacity: 0;
-                    }
-                }
-
-                /* เพิ่ม animation-delay ให้กับข้อความแต่ละตัว */
-                #text-content-1 {
-                    animation-delay: 0s;
-                }
-
-                #text-content-2 {
-                    animation-delay: 2s;  /* เพิ่ม delay */
-                }
-
-                #text-content-3 {
-                    animation-delay: 4s;  /* เพิ่ม delay */
-                }
-
-                #text-content-4 {
-                    animation-delay: 6s;  /* เพิ่ม delay */
-                }
-
-                .button-container button:hover {
-                    transform: scale(1.4);  /* ขยายขนาดปุ่มเมื่อ hover */
-                    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.5);  /* เพิ่มเงาเมื่อ hover */
-                    transition: all 0.3s ease-in-out;  /* เพิ่ม transition เพื่อให้การเปลี่ยนแปลงนุ่มนวล */
-                    background: #360000;  /* เปลี่ยนพื้นหลังเมื่อ hover */
-                    border-color: #b22222;  /* เปลี่ยนขอบเมื่อ hover */
-                }
-
-                /* เพิ่มสีเมื่อเมาส์ชี้ที่ปุ่ม */
-                .button-container button:active {
-                    background: #b22222;  /* เปลี่ยนพื้นหลังเมื่อกด */
-                    color: white;  /* เปลี่ยนสีข้อความเมื่อกด */
-                }
-
-                /* เพิ่มการแสดงผลของข้อความที่ค่อยๆ เฟดขึ้น */
-                #text-content-1, #text-content-2, #text-content-3, #text-content-4 {
-                    animation: fadeIn 2s ease-in-out;  /* เพิ่มแอนิเมชันให้ข้อความค่อยๆ เฟด */
-                }
-
-                #image {
-                    transition: opacity 1.5s ease-in-out;  /* เพิ่ม transition ให้กับ opacity */
-                    opacity: 1;  /* ให้ภาพแสดงผลอย่างชัดเจน */
-                }
-            """)
-        )
+            Div(navbar(), cls="home-header"),
+            Div(order_section(), cls="home-order"),
+            Main(
+                Section(
+                    Div(P("GOOD FOOD. GOOD MOOD.", cls="home-eyebrow"),
+                        H1("มื้อที่ใช่", Br(), Span("อร่อยได้ทุกวัน")),
+                        P("เติมความสุขให้ทุกมื้อ ด้วยเมนูจานโปรดและชุดอิ่มคุ้ม เลือกความอร่อยในแบบคุณได้เลย", cls="home-intro"),
+                        Div(A("สั่งอาหารเลย", Span("↗", aria_hidden="true"), href="/selectdelivery", cls="home-primary"),
+                            A("สำรวจเมนู", href="/menu", cls="home-secondary"), cls="home-actions"),
+                        cls="home-hero-copy"),
+                    Div(Div(*[
+                            Div(Img(src=src, alt=alt if index < slide_count else "",
+                                    fetchpriority="high" if index == 0 else "auto",
+                                    onerror="this.hidden=true"), cls="home-hero-slide",
+                                aria_hidden="true" if index == slide_count else "false")
+                            for index, (src, alt) in enumerate(hero_images + (hero_images[:1] if slide_count > 1 else []))
+                        ], cls="home-hero-track", style=f"--slide-duration:{max(slide_count, 1) * 5}s"),
+                        Span("ความอร่อย พร้อมให้คุณเลือก", cls="home-hero-label"), cls="home-hero-art"),
+                    cls="home-hero", aria_label="เริ่มสั่งอาหาร"),
+                Div(*[Div(Span(number), Div(Strong(title), P(description)), cls="home-step")
+                      for number, title, description in [
+                          ("01", "เลือกเมนูที่ชอบ", "ทั้งจานเดี่ยว ชุดอาหาร และเครื่องดื่ม"),
+                          ("02", "เลือกวิธีรับอาหาร", "จัดส่งถึงบ้าน หรือรับเองที่สาขา"),
+                          ("03", "พร้อมอิ่มอร่อย", "ตรวจสอบรายการ แล้วชำระเงิน")]], cls="home-steps"),
+                Section(Div(Div(P("FIND YOUR FAVORITE", cls="home-eyebrow"), H2("มื้อนี้ กินอะไรดี?")),
+                            A("ดูเมนูทั้งหมด →", href="/menu"), cls="home-section-title"),
+                        Div(*[featured_card(item) for item in featured], cls="home-cards"),
+                        aria_label="เมนูอาหาร"), cls="home-shell"),
+            Footer(Strong("OUR SERVICE"), Span("ทุกมื้ออร่อย เริ่มต้นที่นี่"), cls="home-footer"),
+            cls="home-page"),
     )
-
-    return grid_content
 
 @rt("/menu")
 def menu_page():
@@ -2315,66 +2220,82 @@ def search(postcode: Optional[str] = None):
 
 
 @rt('/fail')
-def get():
-    grid_content = [
-            navbar(),  # เรียกใช้ Navbar
-            order_section(),  # เรียกใช้ Order Section
-        ]
-
-    grid_content.append(
-        Div(
-            # พื้นหลังสี่เหลี่ยม
-                Div(
-            # รูปภาพ (อยู่ซ้าย)
-                Img(
-                    id="image",
-                    src="https://www.kfc.co.th/static/media/empty_cart.32f17a45.png",
-                    style={
-                    "width": "200px",  # กำหนดขนาดรูป
-                    "height": "200px",
-                    "object-fit": "contain",  # ป้องกันภาพผิดสัดส่วน
-                    "margin-right": "20px"  # เว้นระยะระหว่างรูปกับข้อความ
-                    }
-                ),
-                # ข้อความ (อยู่ขวา)
-                Div(
-                    H3("PLEASE LOG IN FIRST", style={
-                        "color": "white",  # ตัวอักษรสีขาว
-                        "font-size": "24px",
-                        "margin": "0"
-                    }),
-                    P("OR SIGN IN.", style={
-                        "color": "white",  # ตัวอักษรสีขาว
-                        "font-size": "16px",
-                        "margin-top": "5px"
-                    }),
-                    style={
-                        "display": "flex",
-                        "flex-direction": "column",  # ให้ข้อความอยู่เป็นแนวตั้ง
-                        "justify-content": "center"  # จัดให้อยู่ตรงกลางแนวตั้ง
-                    }
-                ),
-                style={
-                    "display": "flex",
-                    "align-items": "center",  # จัดให้รูปและข้อความอยู่ตรงกลางแนวตั้ง
-                    "background": "#ff0000",  # สีพื้นหลัง (สีแดง)
-                    "padding": "20px",  # เพิ่มระยะห่างภายใน
-                    "border-radius": "10px",  # ขอบมน
-                    "width": "60%",  # กำหนดความกว้างของกล่อง
-                    "margin": "auto",  # จัดให้อยู่ตรงกลางของหน้าจอ
-                    "box-shadow": "0px 4px 10px rgba(0,0,0,0.2)"  # เพิ่มเงาให้ดูสวยงาม
-                }
-            ),
-            style={
-                "display": "flex",
-                "justify-content": "center",  # จัดให้อยู่กลางหน้าจอ
-                "align-items": "center",
-                "height": "100vh",  # ให้เต็มจอแนวตั้ง
-                "background": "#f4f4f4"  # สีพื้นหลังของหน้าจอ
+def fail_page():
+    return (
+        Title("กรุณาเข้าสู่ระบบ | OUR SERVICE"),
+        Style("""
+            @import url('https://fonts.googleapis.com/css2?family=K2D:wght@400;500;600;700&display=swap');
+            body:has(.fail-page) { margin:0; background:#fff; }
+            main.container:has(.fail-page) { width:100%; max-width:none; padding:0; }
+            .fail-page { color-scheme:light; min-height:100vh; background:#fff; color:#202020;
+                font-family:'K2D',sans-serif; font-size:16px;
+                --pico-color:#202020; --pico-h1-color:#202020; }
+            .fail-page *, .fail-page *::before, .fail-page *::after { box-sizing:border-box; }
+            .fail-page button { font-family:inherit; }
+            .fail-header > div { max-width:1280px; margin:auto; padding:12px 32px; flex-wrap:wrap; }
+            .fail-header button { width:auto; margin:0; }
+            .fail-order { background:#202020; }
+            .fail-order > div { max-width:1280px !important; width:100% !important;
+                height:auto !important; min-height:66px; margin:auto; padding:12px 32px !important;
+                gap:20px; background:#202020 !important; flex-wrap:wrap; }
+            .fail-order h2, .fail-order h5 { margin:0 !important; font-size:15px; font-weight:500; }
+            .fail-order button { width:auto; margin:0; padding:8px 18px !important;
+                background:#c92027 !important; color:#fff !important; border-radius:3px; font-size:14px !important; }
+            .fail-shell { max-width:680px; margin:auto; padding:48px 24px 72px; }
+            .fail-back { color:#666; font-size:14px; text-decoration:none; }
+            .fail-card { margin-top:24px; padding:48px 36px; text-align:center;
+                border:1px solid #dedbd6; border-top:4px solid #c92027; border-radius:4px; background:#f8f7f4; }
+            .fail-icon { position:relative; width:72px; height:72px; margin:0 auto 24px;
+                border:1px solid #e5e2dd; border-radius:50%; background:#fff; }
+            .fail-icon::before { content:''; position:absolute; width:22px; height:20px;
+                top:16px; left:24px; border:3px solid #c92027; border-radius:12px 12px 0 0; }
+            .fail-icon::after { content:''; position:absolute; width:32px; height:25px;
+                top:32px; left:19px; border:3px solid #c92027; border-radius:4px; background:#fff; }
+            .fail-eyebrow { margin:0 0 12px; color:#c92027; font-size:12px; font-weight:700; letter-spacing:.16em; }
+            .fail-card h1 { margin:0 0 16px; font-size:clamp(28px,4vw,36px); line-height:1.35; }
+            .fail-description { margin:0; color:#666; font-size:16px; line-height:1.8; }
+            .fail-actions { display:flex; justify-content:center; gap:12px; margin-top:28px; }
+            .fail-actions a { flex:1; padding:13px 20px; border:1px solid #c92027; border-radius:4px;
+                color:#c92027; background:#fff; font-weight:600; text-decoration:none; }
+            .fail-actions .fail-primary { background:#c92027; color:#fff; }
+            .fail-actions a:hover { background:#fff5f3; }
+            .fail-actions .fail-primary:hover { background:#a8171d; border-color:#a8171d; }
+            .fail-page a:focus-visible, .fail-page button:focus-visible { outline:3px solid #c92027; outline-offset:4px; }
+            @media (max-width:640px) {
+                .fail-header > div { padding:12px 16px; gap:4px; }
+                .fail-header .site-navbar > button:first-child { font-size:26px !important; padding:8px !important; }
+                .fail-header .site-navbar > div { width:100%; justify-content:center; gap:8px !important; }
+                .fail-header button { padding:8px 12px !important; }
+                .fail-order > div { padding:16px !important; gap:12px; }
+                .fail-shell { padding:28px 16px 48px; }
+                .fail-card { padding:32px 20px; }
+                .fail-actions { flex-direction:column; }
             }
-        )
-        )   
-    return grid_content
+        """),
+        Div(
+            Div(navbar(), cls="fail-header"),
+            Div(order_section(), cls="fail-order"),
+            Main(
+                A("← กลับหน้าหลัก", href="/", cls="fail-back"),
+                Div(
+                    Div(cls="fail-icon", aria_hidden="true"),
+                    P("OUR SERVICE / MEMBER", cls="fail-eyebrow"),
+                    H1("กรุณาเข้าสู่ระบบก่อน"),
+                    P("เข้าสู่ระบบเพื่อดำเนินการต่อและสั่งเมนูโปรดของคุณ",
+                      Br(), "หากยังไม่มีบัญชี สามารถสมัครสมาชิกได้เลย", cls="fail-description"),
+                    Div(
+                        A("เข้าสู่ระบบ", href="/login", cls="fail-primary"),
+                        A("สมัครสมาชิก", href="/register"),
+                        cls="fail-actions",
+                    ),
+                    cls="fail-card",
+                ),
+                cls="fail-shell",
+            ),
+            cls="fail-page",
+        ),
+    )
+
 
 @rt('/select_branch', methods=['POST'])
 def select_branch(district: str, address: str):
@@ -2388,323 +2309,120 @@ def select_branch(district: str, address: str):
     member.add_order_type(pickup)
     return B(f"{district} ({address})")
 
-@rt("/login")
-def get():
-    grid_content = [
-    navbar(),  # เรียกใช้ Navbar
-    order_section(),  # เรียกใช้ Order Section
-    ]
-    grid_content.append(Container(
+def auth_field(label, name, placeholder, input_type="text", autocomplete="off"):
+    return Div(
+        Label(label, For=name),
+        Input(type=input_type, id=name, name=name, placeholder=placeholder,
+              autocomplete=autocomplete, required=True),
+        cls="auth-field",
+    )
+
+
+def auth_page(register=False):
+    title = "สร้างบัญชีผู้ใช้" if register else "เข้าสู่ระบบ"
+    fields = []
+    if register:
+        fields.extend([
+            auth_field("ชื่อ", "name", "ชื่อจริง", autocomplete="given-name"),
+            auth_field("นามสกุล", "surname", "นามสกุล", autocomplete="family-name"),
+            auth_field("เบอร์โทรศัพท์", "tel_number", "หมายเลขโทรศัพท์", "tel", "tel"),
+            auth_field("อีเมล", "email", "อีเมลของคุณ", "email", "email"),
+        ])
+    fields.extend([
+        auth_field("ชื่อผู้ใช้", "username", "กรอกชื่อผู้ใช้", autocomplete="username"),
+        auth_field("รหัสผ่าน", "password", "กรอกรหัสผ่าน", "password",
+                   "new-password" if register else "current-password"),
+    ])
+    return (
+        Title(f"{title} | OUR SERVICE"),
         Style("""
-            @import url('https://fonts.googleapis.com/css2?family=TH+Sarabun:wght@400;500;700&display=swap');
-
-            html, body {
-                background: #ffffff;
-                min-height: 100vh;
-                margin: 0;
-                padding: 0;
-                font-family: 'TH Sarabun', sans-serif;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: flex-start;
-                text-align: center;
-            }
-
-            .login-title {
-                font-size: 42px;
-                font-weight: 800;
-                color: #000000;
-                margin-top: 30px;
-            }
-
-            .login-form {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 25px;
-                margin-top: 20px;
-            }
-
-            .input-username, .delivery-input {
-                width: 400px;
-                height: 50px;
-                font-size: 18px;
-                padding: 10px;
-                border-radius: 10px;
-                border: 1px solid #ddd;
-                background-color: #ffffff;
-                color: #333;
-                box-sizing: border-box;
-            }
-
-            .input-username::placeholder,
-            .delivery-input::placeholder {
-                color: #333;
-            }
-
-            .input-username:focus,
-            .delivery-input:focus {
-                background-color: #f0f0f0;
-                border: 1px solid #000;
-            }
-
-            .login-submit-button {
-                width: 250px;
-                height: 60px;
-                font-size: 22px;
-                font-weight: bold;
-                text-align: center;
-                border: none;                          /* ไม่มีเส้นขอบ */
-                background: #cccccc;                   /* สีเทาอ่อน */
-                color: #3d3c3c;
-                border-radius: 50px;                   /* <<< ทำให้เป็นวงรี */
-                cursor: pointer;
-                box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
-                transition: all 0.3s ease-in-out;
-                margin-top: 40px;
-            }
-
-            .login-submit-button:hover {
-                background: #bbbbbb;                   /* สีเทาเข้มขึ้นเล็กน้อยตอน hover */
-                transform: scale(1.01);
-                box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.3);
-            }
-
-            .login-submit-button:active {
-                transform: scale(0.95);
-                box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.2);
-            }
-
-            .username-label {
-                color : #3d3c3c;
-                margin-top: 20px;
-                text-align: left;
-                display: block;            /* ให้ label แสดงเต็มบรรทัด */
-                width: 100%;               /* ขยาย label ให้กว้างเต็มบรรทัด */
-                padding-left: 10px;        /* (ถ้าอยากมีระยะห่างเล็กน้อยจากซ้าย) */
-                box-sizing: border-box;
-            }
-            .password-label {
-                color : #3d3c3c;
-                margin-top: 20px;
-                text-align: left;
-                display: block;            /* ให้ label แสดงเต็มบรรทัด */
-                width: 100%;               /* ขยาย label ให้กว้างเต็มบรรทัด */
-                padding-left: 10px;        /* (ถ้าอยากมีระยะห่างเล็กน้อยจากซ้าย) */
-                box-sizing: border-box;
-                margin-top: -10px;
+            @import url('https://fonts.googleapis.com/css2?family=K2D:wght@400;500;600;700&display=swap');
+            body:has(.auth-page) { margin:0; background:#fff; }
+            main.container:has(.auth-page) { width:100%; max-width:none; padding:0; }
+            .auth-page { color-scheme:light; min-height:100vh; background:#fff;
+                color:#202020; font-family:'K2D',sans-serif; font-size:16px;
+                --pico-color:#202020; --pico-h1-color:#202020;
+                --pico-primary:#c92027; --pico-primary-focus:rgba(201,32,39,.18); }
+            .auth-page *, .auth-page *::before, .auth-page *::after { box-sizing:border-box; }
+            .auth-page button, .auth-page input { font-family:inherit; }
+            .auth-header > div { max-width:1280px; margin:auto; padding:12px 32px; flex-wrap:wrap; }
+            .auth-header button { width:auto; margin:0; }
+            .auth-order { background:#202020; }
+            .auth-order > div { max-width:1280px !important; width:100% !important;
+                height:auto !important; min-height:66px; margin:auto; padding:12px 32px !important;
+                gap:20px; background:#202020 !important; flex-wrap:wrap; }
+            .auth-order h2, .auth-order h5 { margin:0 !important; font-size:15px; font-weight:500; }
+            .auth-order button { width:auto; margin:0; padding:8px 18px !important;
+                background:#c92027 !important; color:#fff !important; border-radius:3px; font-size:14px !important; }
+            .auth-shell { max-width:680px; margin:auto; padding:48px 24px 72px; }
+            .auth-back { color:#666; font-size:14px; text-decoration:none; }
+            .auth-card { margin-top:24px; padding:36px; border:1px solid #dedbd6;
+                border-top:4px solid #c92027; border-radius:4px; background:#fff; }
+            .auth-eyebrow { margin:0 0 12px; color:#c92027; font-size:12px; font-weight:700; letter-spacing:.16em; }
+            .auth-card h1 { margin:0 0 12px; font-size:clamp(28px,4vw,36px); line-height:1.3; }
+            .auth-subtitle { margin:0 0 28px; color:#666; font-size:15px; }
+            .auth-form { margin:0; }
+            .auth-fields { display:grid; gap:20px; }
+            .auth-register .auth-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
+            .auth-field label { display:block; margin:0 0 8px; color:#202020; font-size:14px; font-weight:600; }
+            .auth-field input { width:100%; height:48px; margin:0; padding:12px 14px;
+                border:1px solid #ccc; border-radius:4px; background:#fff; color:#202020; font-size:16px; box-shadow:none; }
+            .auth-field input::placeholder { color:#777; }
+            .auth-field input:focus { border-color:#c92027; box-shadow:0 0 0 3px rgba(201,32,39,.12); }
+            .auth-submit { width:100%; margin:28px 0 0; padding:13px 20px;
+                background:#c92027; border:1px solid #c92027; border-radius:4px; color:#fff; font-size:16px; font-weight:700; }
+            .auth-submit:hover { background:#a71920; border-color:#a71920; }
+            .auth-switch { margin:24px 0 0; padding-top:24px; border-top:1px solid #eee;
+                color:#666; text-align:center; font-size:14px; }
+            .auth-switch a { color:#c92027; font-weight:600; text-underline-offset:4px; }
+            .auth-page a:focus-visible, .auth-page button:focus-visible { outline:3px solid #c92027; outline-offset:4px; }
+            @media (max-width:640px) {
+                .auth-header > div { padding:12px 16px; gap:4px; }
+                .auth-header .site-navbar > button:first-child { font-size:26px !important; padding:8px !important; }
+                .auth-header .site-navbar > div { width:100%; justify-content:center; gap:8px !important; }
+                .auth-header button { padding:8px 12px !important; }
+                .auth-order > div { padding:16px !important; gap:12px; }
+                .auth-shell { padding:28px 16px 48px; }
+                .auth-card { padding:24px 20px; }
+                .auth-register .auth-fields { grid-template-columns:1fr; }
             }
         """),
-        H1("เข้าสู่ระบบ", cls="login-title"),
-        Form(
+        Div(
+            Div(navbar(), cls="auth-header"),
+            Div(order_section(), cls="auth-order"),
             Div(
-                Label("Username:", For="username", cls="username-label"),
-                Input(type="text", id="username", placeholder="กรอกชื่อผู้ใช้งาน...", required=True, cls="input-username"),
-                cls="login-form"
+                A("← กลับหน้าหลัก", href="/", cls="auth-back"),
+                Div(
+                    P("OUR SERVICE / MEMBER", cls="auth-eyebrow"),
+                    H1(title),
+                    P("สมัครสมาชิกเพื่อเริ่มสั่งเมนูโปรดของคุณ" if register else
+                      "ยินดีต้อนรับกลับมา เข้าสู่ระบบเพื่อสั่งเมนูโปรดของคุณ", cls="auth-subtitle"),
+                    Form(
+                        Div(*fields, cls="auth-fields"),
+                        Button("สร้างบัญชี" if register else "เข้าสู่ระบบ", type="submit", cls="auth-submit"),
+                        method="post", action="/register/submit" if register else "/login/submit", cls="auth-form",
+                    ),
+                    P("มีบัญชีอยู่แล้ว? " if register else "ยังไม่มีบัญชี? ",
+                      A("เข้าสู่ระบบ" if register else "สมัครสมาชิก", href="/login" if register else "/register"),
+                      cls="auth-switch"),
+                    cls="auth-card",
+                ),
+                cls="auth-shell",
             ),
-            Div(
-                Label("Password:", For="password", cls="password-label"),
-                Input(type="password", id="password", placeholder="กรอกรหัสผ่าน...", required=True, cls="delivery-input"),
-                cls="login-form"
-            ),
-            Button("เข้าสู่ระบบ", type="submit", cls="login-submit-button"),
-            method="post",
-            action="/login/submit"
-        )
+            cls="auth-page auth-register" if register else "auth-page",
+        ),
     )
-    )
-    return grid_content 
+
+
+@rt("/login")
+def get():
+    return auth_page()
+
 
 @rt("/register")
 def get():
-    grid_content = [
-        navbar(),  # เรียกใช้ Navbar
-        order_section(),  # เรียกใช้ Order Section
-    ]
-    grid_content.append(Container(
-        Style("""
-            @import url('https://fonts.googleapis.com/css2?family=TH+Sarabun:wght@400;500;700&display=swap');
+    return auth_page(register=True)
 
-            html, body {
-                background: #ffffff;
-                min-height: 100vh;
-                margin: 0;
-                padding: 0;
-                font-family: 'TH Sarabun', sans-serif;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: flex-start;
-                text-align: center;
-                overflow-x: hidden;
-
-            }
-
-            .register-title {
-                font-size: 42px;
-                font-weight: 800;
-                color: #000000;
-                margin-top: 30px;
-            }
-
-            .register-form {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 25px;
-                margin-top: 20px;
-            }
-
-            .input-field {
-                width: 400px;
-                height: 50px;
-                font-size: 18px;
-                padding: 10px;
-                border-radius: 10px;
-                border: 1px solid #ddd;
-                background-color: #ffffff;
-                color: #333;
-                box-sizing: border-box;
-            }
-
-            .input-field::placeholder {
-                color: #333;
-            }
-
-            .input-field:focus {
-                background-color: #f0f0f0;
-                border: 1px solid #000;
-            }
-
-            .register-submit-button {
-                width: 200px;
-                height: 50px;
-                font-size: 20px;
-                font-weight: bold;
-                text-align: center;
-                border: none;
-                background: #cccccc;
-                color: #3d3c3c;
-                border-radius: 50px;
-                cursor: pointer;
-                box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
-                transition: all 0.3s ease-in-out;
-                margin-top: 40px;
-            }
-
-            .register-submit-button:hover {
-                background: #bbbbbb;
-                transform: scale(1.01);
-                box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.3);
-            }
-
-            .register-submit-button:active {
-                transform: scale(0.95);
-                box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.2);
-            }
-            .name-label {
-                color : #3d3c3c;
-                margin-top: 20px;
-                text-align: left;
-                display: block;            /* ให้ label แสดงเต็มบรรทัด */
-                width: 100%;               /* ขยาย label ให้กว้างเต็มบรรทัด */
-                padding-left: 10px;        /* (ถ้าอยากมีระยะห่างเล็กน้อยจากซ้าย) */
-                box-sizing: border-box;
-                margin-top: -10px;
-            }
-            .surname-label {
-                color : #3d3c3c;
-                margin-top: 20px;
-                text-align: left;
-                display: block;            /* ให้ label แสดงเต็มบรรทัด */
-                width: 100%;               /* ขยาย label ให้กว้างเต็มบรรทัด */
-                padding-left: 10px;        /* (ถ้าอยากมีระยะห่างเล็กน้อยจากซ้าย) */
-                box-sizing: border-box;
-                margin-top: -10px;
-            }
-            .phone-label {
-                color : #3d3c3c;
-                margin-top: 20px;
-                text-align: left;
-                display: block;            /* ให้ label แสดงเต็มบรรทัด */
-                width: 100%;               /* ขยาย label ให้กว้างเต็มบรรทัด */
-                padding-left: 10px;        /* (ถ้าอยากมีระยะห่างเล็กน้อยจากซ้าย) */
-                box-sizing: border-box;
-                margin-top: -10px;
-            }
-            .email-label {
-                color : #3d3c3c;
-                margin-top: 20px;
-                text-align: left;
-                display: block;            /* ให้ label แสดงเต็มบรรทัด */
-                width: 100%;               /* ขยาย label ให้กว้างเต็มบรรทัด */
-                padding-left: 10px;        /* (ถ้าอยากมีระยะห่างเล็กน้อยจากซ้าย) */
-                box-sizing: border-box;
-                margin-top: -10px;
-            }
-            .username-label2 {
-                color : #3d3c3c;
-                margin-top: 20px;
-                text-align: left;
-                display: block;            /* ให้ label แสดงเต็มบรรทัด */
-                width: 100%;               /* ขยาย label ให้กว้างเต็มบรรทัด */
-                padding-left: 10px;        /* (ถ้าอยากมีระยะห่างเล็กน้อยจากซ้าย) */
-                box-sizing: border-box;
-                margin-top: -10px;
-            }
-            .password-label2 {
-                color : #3d3c3c;
-                margin-top: 20px;
-                text-align: left;
-                display: block;            /* ให้ label แสดงเต็มบรรทัด */
-                width: 100%;               /* ขยาย label ให้กว้างเต็มบรรทัด */
-                padding-left: 10px;        /* (ถ้าอยากมีระยะห่างเล็กน้อยจากซ้าย) */
-                box-sizing: border-box;
-                margin-top: -10px;
-            }
-            
-            
-            
-        """),
-        H1("สร้างบัญชีผู้ใช้", cls="register-title"),
-        Form(
-            Div(
-                Label("Name:", cls="name-label"),
-                Input(type="text", id="name", placeholder="ชื่อจริง", required=True, cls="input-field"),
-                cls="register-form"
-            ),
-            Div(
-                Label("Surname:", cls="surname-label"),
-                Input(type="text", id="surname", placeholder="นามสกุล", required=True, cls="input-field"),
-                cls="register-form"
-            ),
-            Div(
-                Label("Phone Number:", cls="phone-label"),
-                Input(type="text", id="tel_number", placeholder="หมายเลขโทรศัพท์", required=True, cls="input-field"),
-                cls="register-form"
-            ),
-            Div(
-                Label("Email:", cls="email-label"),
-                Input(type="email", id="email", placeholder="อีเมล", required=True, cls="input-field"),
-                cls="register-form"
-            ),
-            Div(
-                Label("Username:", cls="username-label2"),
-                Input(type="text", id="username", placeholder="ชื่อ Username", required=True, cls="input-field"),
-                cls="register-form"
-            ),
-            Div(
-                Label("Password:", cls="password-label2"),
-                Input(type="password", id="password", placeholder="รหัสผ่าน", required=True, cls="input-field"),
-                cls="register-form"
-            ),
-            Button("สร้างบัญชี", type="submit", cls="register-submit-button"),
-            method="post",
-            action="/register/submit"
-        )
-    ))
-    return grid_content
 
 @rt("/login/submit")
 def post(username: str, password: str):

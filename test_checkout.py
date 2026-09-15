@@ -41,6 +41,31 @@ class CheckoutRoutingTests(unittest.TestCase):
                     response = self.client.post(f'/total/order/{self.member.get_id}')
                     self.assertEqual(response.status_code, 200)
                     self.assertEqual(response.url.path, '/summary')
+                    completed_order = self.member.get_order_history()[-1]
+                    previous_basket = self.member.get_current_basket()
+                    response = self.client.get('/neworder')
+                    self.assertEqual(response.url.path, '/menu')
+                    self.assertIs(self.member.get_order_type(), selection)
+                    self.assertIsNot(self.member.get_current_basket(), previous_basket)
+                    self.assertEqual(self.member.get_current_basket().get_item_in_basket(), [])
+                    self.assertIs(completed_order.get_order_type(), selection)
+                    self.member.get_current_basket().add_basket_item(main.system.get_menu_list()[0], 1)
+                    self.assertEqual(self.client.get('/payment').url.path, '/payment')
+
+    def test_remembered_selection_can_be_changed_for_next_order(self):
+        self.client.post('/submit_address', data={'address': '123 Bangkok 10200'})
+        original = self.member.get_order_type()
+        self.client.post(f'/total/order/{self.member.get_id}')
+        completed_order = self.member.get_order_history()[-1]
+        self.client.get('/neworder')
+        self.client.get('/pickup')
+        branch = main.system.find_branch_from_post('10200')[0]
+        self.client.post('/select_branch', data={
+            'district': branch['district'], 'address': branch['address']})
+        self.client.get('/neworder')
+        self.assertIsInstance(self.member.get_order_type(), main.PickUp)
+        self.assertIsNotNone(self.member.get_order_type().get_branch())
+        self.assertIs(completed_order.get_order_type(), original)
 
     def test_incomplete_selection_redirects_before_payment(self):
         for method in ('pickup', 'delivery'):
