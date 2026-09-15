@@ -1,4 +1,4 @@
-<img width="1740" height="1702" alt="image" src="https://github.com/user-attachments/assets/9fcfb835-ddd9-4c8b-bbc1-c5eb9805f165" /># Object-Oriented-Project-2024
+# Object-Oriented-Project-2024
 
 ## Project Concept
 
