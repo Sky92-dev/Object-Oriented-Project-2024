@@ -97,7 +97,9 @@ uvicorn main:app --reload --port 5001
 
 ### 4. Open the Web App
 
+```text
 http://localhost:5001
+```bash
 
 ## 📸 Web Application Demo
 
