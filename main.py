@@ -2,6 +2,8 @@ from fasthtml.common import*
 from typing import List, Tuple, Optional
 from datetime import datetime, time, timedelta
 import copy
+from uuid import uuid4
+from urllib.parse import urlencode
 
 app, rt = fast_app()
 import random
@@ -326,7 +328,7 @@ class System:
         except ValueError:
             return [] 
 
-        matched_branches = [branch.get_branch_info() for branch in self.__branches if branch.get_branch_info()['postcode'] == post_number]
+        matched_branches = [branch.get_branch_info() for branch in self.__branches if str(branch.get_branch_info()['postcode']) == str(post_number)]
         return matched_branches
 
     def search_branches(self, postcode: str):
@@ -614,7 +616,7 @@ class Member(Account):
     def get_current_basket(self):
         return self.__current_basket
     
-    def view_basket(self, coupon_code=""):
+    def view_basket(self, coupon_code=None):
         return self.__current_basket.item_selected(coupon_code)
     
     def summary_order(self):
@@ -622,7 +624,7 @@ class Member(Account):
         
         items, total_price, discount_applied, discount_include = self.__current_basket.item_selected()
         order_type = self.__order_type
-        return [user_info, items, total_price, order_type, discount_applied]
+        return [user_info, items, discount_include, order_type, discount_applied]
     
     def create_order_history(self,rider = None):
         order_history = OrderHistory(self.get_account_id(), self.__order_type, self.__current_basket,rider)
@@ -640,6 +642,7 @@ class Member(Account):
         return self.__order_history
 class PickedItem:
     def __init__(self, product, quantity: int):
+        self.item_id = uuid4().hex
         self.__product = product  
         self.__quantity = quantity
 
@@ -648,6 +651,7 @@ class PickedItem:
         return {
             
             "name": self.__product,
+            "item_id": self.item_id,
             "quantity": self.__quantity
         }   
 
@@ -664,6 +668,7 @@ class PickedItem:
 class Basket:
     def __init__(self):
         self.__items = []
+        self.__coupon_code = ""
     
     def get_item_in_basket(self):
         return self.__items
@@ -707,6 +712,23 @@ class Basket:
     def remove_basket_item(self, item_name):
         self.__items = [item for item in self.__items if item.get_item_info()["name"] != item_name]
 
+    def change_quantity(self, item_id: str, change: int):
+        if change not in (-1, 1):
+            return False
+        for item in self.__items:
+            if item.item_id == item_id:
+                item.increase_quantity(change)
+                if item.get_total() <= 0:
+                    self.__items.remove(item)
+                return True
+        return False
+
+    def get_coupon_code(self):
+        return self.__coupon_code
+
+    def calculate_payable_total(self):
+        return self.item_selected()[3]
+
     def calculate_total_price(self):
         total_price = 0
         for pickeditem in self.__items:
@@ -715,7 +737,10 @@ class Basket:
 
         return total_price
 
-    def item_selected(self, coupon_code=""):
+    def item_selected(self, coupon_code=None):
+        if coupon_code is not None:
+            self.__coupon_code = coupon_code
+        coupon_code = self.__coupon_code
         items = [item.get_item_info() for item in self.__items]
         total_price = self.calculate_total_price()
         discount_applied = 0
@@ -1139,6 +1164,7 @@ def navbar():
             "padding": "10px 20px",
         }),
         user,
+        cls="site-navbar",
         style={
             "background-color" : "white",
             "display": "flex",
@@ -1303,186 +1329,128 @@ def logout():
     session.logout()
     return Redirect("/")
 
+def product_detail_page(item, category, options, action, fixed_menu=()):
+    """Shared storefront detail layout for every food and box set."""
+    price = item.get_price()
+    return (
+        Title(f"{item.get_name()} | OUR SERVICE"),
+        Style("""
+            @import url('https://fonts.googleapis.com/css2?family=K2D:wght@400;500;600;700&display=swap');
+            body:has(.product-page) { margin:0; background:#fff; }
+            main.container:has(.product-page) { width:100%; max-width:none; padding:0; }
+            .product-page { color-scheme:light; font-family:'K2D',sans-serif; color:#202020; background:#fff; min-height:100vh;
+                --pico-color:#202020; --pico-h1-color:#202020; --pico-h2-color:#202020; --pico-h3-color:#202020; }
+            .product-page *, .product-page *::before { box-sizing:border-box; }
+            .product-page a { color:#c92027; text-decoration:none; }
+            .product-page button, .product-page input, .product-page select { font-family:inherit; }
+            .product-page :is(a,button,input,select):focus-visible { outline:3px solid #c92027; outline-offset:4px; }
+            .product-header > div { max-width:1280px; margin:auto; padding:12px 32px; flex-wrap:wrap; }
+            .product-header button { width:auto; margin:0; }
+            .product-order { background:#202020; }
+            .product-order > div { width:100% !important; max-width:1280px !important; height:auto !important; min-height:66px; padding:12px 32px !important; gap:20px; flex-wrap:wrap; background:#202020 !important; }
+            .product-order h2,.product-order h5 { margin:0 !important; font-size:15px; }
+            .product-order button { width:auto; margin:0; background:#c92027 !important; color:white !important; font-size:14px !important; border-radius:3px; }
+            .product-shell { max-width:1216px; margin:auto; padding:28px 32px 72px; }
+            .product-breadcrumb { display:flex; flex-wrap:wrap; gap:10px; color:#777; font-size:14px; margin-bottom:28px; }
+            .product-layout { display:grid; grid-template-columns:1.05fr 1fr; gap:56px; align-items:start; }
+            .product-photo { position:relative; background:#f5f3ef; border-radius:8px; overflow:hidden; aspect-ratio:1.12; display:grid; place-items:center; }
+            .product-photo img { width:100%; height:100%; object-fit:contain; }
+            .product-tag { position:absolute; top:20px; left:20px; background:#fff; color:#c92027; font-size:12px; font-weight:700; padding:7px 12px; letter-spacing:.1em; }
+            .product-eyebrow { font-size:12px; letter-spacing:.15em; color:#c92027; font-weight:700; margin:0 0 12px; }
+            .product-page h1 { font-size:clamp(28px,3.5vw,42px); line-height:1.3; margin:0 0 12px; }
+            .product-price { color:#c92027; font-size:30px; font-weight:700; margin:0 0 8px; }
+            .product-muted { color:#707070; font-size:14px; margin:0; }
+            .product-section { padding:24px 0; border-top:1px solid #e8e4df; margin-top:24px; }
+            .product-page h2 { font-size:20px; margin:0 0 16px; }
+            .product-fixed { display:flex; align-items:center; gap:14px; padding:10px 0; font-size:15px; }
+            .product-fixed img { width:64px; height:56px; object-fit:contain; background:#f5f3ef; border-radius:4px; }
+            .product-fixed span:last-child { margin-left:auto; color:#c92027; font-size:12px; white-space:nowrap; }
+            .product-form { margin:0; }
+            .product-option { margin-bottom:18px; }
+            .product-option label { color:#202020; font-size:15px; font-weight:600; margin-bottom:8px; }
+            .product-option select { background-color:#fff; color:#202020; border:1px solid #d9d5cf; border-radius:4px; margin:0; font-size:15px; }
+            .product-purchase { padding-top:24px; border-top:1px solid #e8e4df; }
+            .product-quantity-row,.product-total { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
+            .product-stepper { display:flex; align-items:center; border:1px solid #d9d5cf; border-radius:4px; overflow:hidden; }
+            .product-stepper button { width:42px; height:44px; padding:0; margin:0; background:#fff; border:0; border-radius:0; color:#202020; font-size:22px; box-shadow:none; }
+            .product-stepper button:disabled { opacity:.3; }
+            .product-stepper input { width:58px; height:44px; text-align:center; border:0; margin:0; padding:0; color:#202020; background:#fff; appearance:textfield; box-shadow:none; }
+            .product-stepper input::-webkit-inner-spin-button { appearance:none; }
+            .product-total strong { font-size:24px; }
+            .product-submit { width:100%; margin:0; padding:16px; background:#c92027; border:1px solid #c92027; color:#fff; border-radius:4px; font-weight:600; }
+            .product-submit:hover { background:#a8171d; border-color:#a8171d; }
+            .product-back { display:block; text-align:center; margin-top:16px; font-size:14px; }
+            @media(max-width:760px) { .product-layout { grid-template-columns:1fr; gap:28px; } .product-shell { padding:20px 20px 40px; } .product-header > div { padding:12px 16px; } .product-header .site-navbar > button:first-child { font-size:25px !important; } .product-header .site-navbar > div { gap:0 !important; flex-wrap:wrap; } .product-order > div { padding:12px 20px !important; gap:8px; } .product-photo { aspect-ratio:1.3; } }
+        """),
+        Div(
+            Div(navbar(), cls="product-header"),
+            Div(order_section(), cls="product-order"),
+            Div(
+                Div(A("หน้าหลัก", href="/"), Span("/"), A("เมนูอาหาร", href="/menu"), Span("/"), Span(item.get_name()), cls="product-breadcrumb", aria_label="เส้นทางหน้า"),
+                Div(
+                    Div(
+                        Div(Span(category, cls="product-tag"),
+                            Span("ยังไม่มีรูปภาพ", hidden=True),
+                            Img(src=item.get_picture(), alt=item.get_name(), width="600", height="520", onerror="this.hidden=true; this.previousElementSibling.hidden=false;"), cls="product-photo"),
+                        Section(H2("ในชุดนี้มี"), *[
+                            Div(Img(src=food.get_picture(), alt="", loading="lazy", onerror="this.hidden=true"), Strong(food.get_name()), Span("รวมในชุด"), cls="product-fixed")
+                            for food in fixed_menu
+                        ], cls="product-section") if fixed_menu else None,
+                    ),
+                    Div(
+                        P(category, cls="product-eyebrow"), H1(item.get_name()),
+                        P(f"฿{price:,.0f}", cls="product-price"), P("ราคาต่อชุด" if fixed_menu else "ราคาต่อรายการ", cls="product-muted"),
+                        Form(
+                            Section(H2("เลือกความอร่อยของคุณ"), *options, cls="product-section") if options else Section(P("พร้อมเสิร์ฟความอร่อย เลือกจำนวนที่ต้องการได้เลย", cls="product-muted"), cls="product-section"),
+                            Div(
+                                Div(Label("จำนวน", fr="product-quantity"),
+                                    Div(Button("−", type="button", data_step="-1", aria_label="ลดจำนวน", disabled=True),
+                                        Input(type="number", id="product-quantity", name="counter_value", value="1", min="1", max="99", step="1", required=True, aria_label="จำนวนสินค้า"),
+                                        Button("+", type="button", data_step="1", aria_label="เพิ่มจำนวน"), cls="product-stepper"), cls="product-quantity-row"),
+                                Div(Span("ราคารวม"), Strong(f"฿{price:,.0f}", id="product-total", aria_live="polite"), cls="product-total"),
+                                Button("เพิ่มลงตะกร้า", type="submit", cls="product-submit"),
+                                A("← กลับไปเลือกเมนู", href="/menu", cls="product-back"), cls="product-purchase"),
+                            action=action, method="post", cls="product-form", data_price=str(price),
+                        ),
+                    ), cls="product-layout"), cls="product-shell"), cls="product-page"),
+        Script("""
+            (() => {
+                const form = document.querySelector('.product-form');
+                const quantity = form.querySelector('[name=counter_value]');
+                const buttons = form.querySelectorAll('[data-step]');
+                function update() {
+                    const value = Math.max(1, Math.min(99, Math.floor(Number(quantity.value) || 1)));
+                    quantity.value = value;
+                    document.getElementById('product-total').textContent = '฿' + (value * Number(form.dataset.price)).toLocaleString('th-TH');
+                    buttons[0].disabled = value <= 1;
+                    buttons[1].disabled = value >= 99;
+                }
+                buttons.forEach(button => button.addEventListener('click', () => {
+                    quantity.value = Number(quantity.value) + Number(button.dataset.step); update();
+                }));
+                quantity.addEventListener('input', update);
+                form.addEventListener('submit', update);
+            })();
+        """),
+    )
+
+
+def product_option(label, name, values, index):
+    field_id = f"product-option-{index}"
+    return Div(Label(label, fr=field_id), Select(*[Option(value, value=value) for value in values],
+               name=name, id=field_id, required=True), cls="product-option")
+
+
 @rt("/boxset/{boxset_id}")
 def boxset_detail(boxset_id: str):
     boxset = system.search_boxset_by_id(boxset_id)
     if not boxset:
         return P("Boxset not found.")
-    
-    boxset_name = boxset.get_name()
-    container_content = [
-        navbar(),       # เรียกใช้ Navbar
-        order_section(),# เรียกใช้ Order Section
-    ]
-    
-    # --- Top Section: แสดงภาพและ counter (สำหรับการแสดงผลเท่านั้น) ---
-    top_section = Div(
-        # ด้านซ้าย: แสดงภาพ
-        Div(
-            Img(
-                src=boxset.get_picture(),  
-                style={
-                    "width": "30vw",      
-                    "height": "50vh", 
-                    "object-fit": "cover",
-                    "border-radius": "8px",
-                    "margin": "30px",
-                }
-            ),
-            style={"flex": "1", "text-align": "center"}
-        ),
-        # ด้านขวา: แสดงชื่อเซต, ราคา (ถ้ามี) และ counter
-        Div(
-            Div(
-                H1(boxset_name, style={"margin-bottom": "20px"}),
-                # (ถ้ามีข้อมูลราคา สามารถเพิ่ม P สำหรับราคาได้ที่นี่)
-                Button("+", onclick="updateCounter('increase')", style={
-                    "background": "#4CAF50", 
-                    "border": "none", 
-                    "color": "white", 
-                    "font-size": "24px", 
-                    "cursor": "pointer", 
-                    "padding": "10px 20px",
-                    "border-radius": "20px",
-                    "box-shadow": "0 4px 6px rgba(0,0,0,0.3)"
-                }),
-                Span(id="counter", style={
-                    "margin": "0 20px", 
-                    "font-size": "24px", 
-                    "font-weight": "bold"
-                }),
-                Button("-", onclick="updateCounter('decrease')", style={
-                    "background": "#f44336", 
-                    "border": "none", 
-                    "color": "white", 
-                    "font-size": "24px", 
-                    "cursor": "pointer", 
-                    "padding": "10px 20px",
-                    "border-radius": "20px",
-                    "box-shadow": "0 4px 6px rgba(0,0,0,0.3)"
-                }),
-                style={
-                    "text-align": "center", 
-                    "margin-bottom": "10px",
-                    "background": "white",
-                    "height": "40vh",
-                    "width": "40vw",
-                    "border-radius": "10px",
-                    "box-shadow": "0 4px 10px rgba(0,0,0,0.2)",
-                    "display": "flex",
-                    "flex-direction": "column",
-                    "justify-content": "center",
-                    "align-items": "center"
-                }
-            ),
-            style={
-                "flex": "1", 
-                "text-align": "center",
-                "display": "flex", 
-                "flex-direction": "column", 
-                "align-items": "center"
-            }
-        ),
-        style={
-            "background-color": "#f2f1ec",
-            "display": "flex", 
-            "width": "100%", 
-            "justify-content": "space-around", 
-            "align-items": "center",
-            "padding": "20px",
-            "box-sizing": "border-box",
-            "border-radius": "15px",
-            "box-shadow": "0 4px 12px rgba(0,0,0,0.2)"
-        }
-    )
-    container_content.append(top_section)
-    
-    # --- Main Menu Display (สำหรับแสดงข้อมูลเท่านั้น) ---
-    menu_names = [food.get_name() for food in boxset.get_fixed_menu()]
-    background_color = "#f2f1ec"
-    container_content.append(
-        H1(f"{boxset_name}", style={"text-align": "center", "margin-top": "40px", "margin-bottom": "40px"})
-    )
-    container_content.append(
-        Card(
-            H3("Main menu", style=f"background-color: {background_color}; padding: 15px; color: #000000; text-align: left; margin-left: -18px;"),
-            *[P(menu, style={"font-size": "18px", "margin": "5px 0"}) for menu in menu_names],
-            style=f"""
-                width: 100%;
-                min-height: 200px;
-                padding: 20px;
-                margin: 10px 0;
-                background-color: {background_color};
-                border-radius: 8px;
-                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            """
-        )
-    )
-    container_content.append(H3("Select Menu", style={"text-align": "center", "margin-top": "30px", "margin-bottom": "30px"}))
-    
-    # --- Form Section: รวม dropdown สำหรับเลือกเมนู และ input hidden สำหรับ counter ---
-    form_content = []
-    for selected in boxset.get_box_select_list():
-        grid_content = [
-            Grid(H3(f"{selected.get_menu_type()}", style="color: black; background-color: #f2f1ec   ; padding: 10px; border-radius: 5px; text-align: left"))
-        ]
-        options = [Option(food.get_name()) for food in selected.get_select_option()]
-        grid_content.append(
-            Card(
-                Select(*options, name=f"select_{selected.get_menu_type()}", style="""
-                    padding: 10px; 
-                    width: 100%; 
-                    margin-bottom: 20px; 
-                    border-radius: 5px; 
-                    border: 1px solid #ccc;
-                """),
-                style="display: flex; justify-content: center; margin-bottom: 10px;"
-            )
-        )
-        form_content.extend(grid_content)
-    
-    # เพิ่ม input hidden สำหรับ counter value ลงใน form
-    form_content.append(
-         Input(id="form_counter_value", type="hidden", name="counter_value", value="1")
-    )
-    # เพิ่มปุ่ม submit ลงใน form
-    form_content.append(
-         Button("Select", type="submit", style={
-             "background-color": "#FF3333", 
-             "color": "white", 
-             "padding": "10px 20px", 
-             "border-radius": "5px", 
-             "border": "none", 
-             "cursor": "pointer",
-             "font-size": "18px"
-         })
-    )
-    
-    form = Form(*form_content, method="post", action=f"/submit/{boxset.get_boxset_id()}")
-    container_content.append(form)
-    
-    # ปุ่ม "GO Back"
-    container_content.append(
-         A(Button("GO Back"), href="/menu", style={"display": "block", "margin": "20px auto"})
-    )
-    
-    # --- Script: อัปเดต counter และอัปเดต input hidden ใน form ---
-    container_content.append(
-        Script("""
-            let counterValue = 1;  // Initialize counter with 1
-            document.getElementById("counter").innerText = counterValue;
-            function updateCounter(action) {
-                if (action === 'increase') {
-                    counterValue++;
-                } else if (action === 'decrease' && counterValue > 1) {
-                    counterValue--;
-                }
-                document.getElementById("counter").innerText = counterValue;
-                document.getElementById("form_counter_value").value = counterValue;
-            }
-        """)
-    )
-    return Container(*container_content)
+    options = [product_option(selected.get_menu_type(), f"select_{selected.get_menu_type()}",
+                             [food.get_name() for food in selected.get_select_option()], index)
+               for index, selected in enumerate(boxset.get_box_select_list())]
+    return product_detail_page(boxset, "BOX SETS · ชุดอาหาร", options,
+                               f"/submit/{boxset_id}", boxset.get_fixed_menu())
 
 @rt("/submit/{boxset_id}", methods=["POST"])
 def post(boxset_id: str, select_menu: dict, counter_value: int):
@@ -1493,7 +1461,7 @@ def post(boxset_id: str, select_menu: dict, counter_value: int):
     if isinstance(member,Manager):
         return Redirect("/menu")
     
-    select_menu.popitem() #ลบและคืนค่าตัวสุดท้าย
+    select_menu.pop("counter_value", None)
     
     # ดึงข้อมูลเมนูที่เลือก
     selected_foods = [select_menu[key] for key in select_menu]
@@ -1508,166 +1476,13 @@ def food_detail(food_id: str):
     food = system.search_food_by_id(food_id)
     if not food:
         return P("Food not found.")
-    
-    food_name = food.get_name()
-    container_content = [
-        navbar(),       
-        order_section(),
-    ]
-    
-    # --- Top Section: แสดงภาพและ counter (สำหรับการแสดงผลเท่านั้น) ---
-    top_section = Div(
-        # ด้านซ้าย: แสดงภาพ
-        Div(
-            Img(
-                src=food.get_picture(),  
-                style={
-                    "width": "30vw",      
-                    "height": "50vh", 
-                    "object-fit": "cover",
-                    "border-radius": "8px",
-                    "margin": "30px",
-                }
-            ),
-            style={"flex": "1", "text-align": "center"}
-        ),
-        # ด้านขวา: แสดงชื่อเซต, ราคา (ถ้ามี) และ counter
-        Div(
-            Div(
-                H1(food_name, style={"margin-bottom": "20px"}),
-                Button("+", onclick="updateCounter('increase')", style={
-                    "background": "#4CAF50", 
-                    "border": "none", 
-                    "color": "white", 
-                    "font-size": "24px", 
-                    "cursor": "pointer", 
-                    "padding": "10px 20px",
-                    "border-radius": "20px", 
-                    "box-shadow": "0 4px 6px rgba(0,0,0,0.3)"
-                }),
-                Span(id="counter", style={
-                    "margin": "0 20px", 
-                    "font-size": "24px", 
-                    "font-weight": "bold"
-                }),
-                Button("-", onclick="updateCounter('decrease')", style={
-                    "background": "#f44336", 
-                    "border": "none", 
-                    "color": "white", 
-                    "font-size": "24px", 
-                    "cursor": "pointer", 
-                    "padding": "10px 20px",
-                    "border-radius": "20px", 
-                    "box-shadow": "0 4px 6px rgba(0,0,0,0.3)"
-                }),
-                style={
-                    "text-align": "center", 
-                    "margin-bottom": "10px",
-                    "background": "white",
-                    "height": "40vh",
-                    "width": "40vw",
-                    "border-radius": "10px",
-                    "box-shadow": "0 4px 10px rgba(0,0,0,0.2)",
-                    "display": "flex",
-                    "flex-direction": "column",
-                    "justify-content": "center",
-                    "align-items": "center"
-                }
-            ),
-            style={
-                "flex": "1", 
-                "text-align": "center",
-                "display": "flex", 
-                "flex-direction": "column", 
-                "align-items": "center"
-            }
-        ),
-        style={
-            "background-color": "#f2f1ec",
-            "display": "flex", 
-            "width": "100%", 
-            "justify-content": "space-around", 
-            "align-items": "center",
-            "padding": "20px",
-            "box-sizing": "border-box",
-            "border-radius": "15px",
-            "box-shadow": "0 4px 12px rgba(0,0,0,0.2)"
-        }
-    )
-    container_content.append(top_section)
-    
-    # --- Main Menu Display (สำหรับแสดงข้อมูลเท่านั้น) ---
-    background_color = "#dbf8cc"
-    container_content.append(
-        H1(f"{food_name}", style={"text-align": "center", "margin-top": "20px"})
-    )
-    
-    # --- Form Section: รวม dropdown สำหรับเลือกเมนู และ input hidden สำหรับ counter ---
-    form_content = []
-
-    # ตรวจสอบว่า food เป็น Drink
-    if isinstance(food,Drink):
-        level_content = ["ไม่หวาน", "หวานน้อย", "ปกติ", "หวานมาก"]
-    elif isinstance(food,Savory):
-        level_content = ["ไม่เผ็ด" , "เผ็ดน้อย" , "เผ็ดมาก" , "เผ็ดมากสุดๆ" , "เผ็ดนรก"]
-
+    options = []
+    category = "DRINKS · เครื่องดื่ม" if isinstance(food, Drink) else "DESSERTS · ของหวาน" if isinstance(food, Dessert) else "À LA CARTE · อาหารจานเดี่ยว"
     if food.get_select():
-        grid_content = [
-            Grid(H3(f"Level", style="color: black; background-color: #f2f1ec; padding: 10px; border-radius: 5px; text-align: left"))
-        ]
-        options = [Option(level) for level in level_content]  # แก้ไข options
-        grid_content.append(
-            Card(
-                Select(*options, name="select_sweet_level", style=""" 
-                    padding: 10px; 
-                    width: 100%; 
-                    margin-bottom: 20px; 
-                    border-radius: 5px; 
-                    border: 1px solid #ccc;
-                """),
-                style="display: flex; justify-content: center; margin-bottom: 10px;"
-            )
-        )
-        form_content.extend(grid_content)
-    
-    # เพิ่ม input hidden สำหรับ counter value ลงใน form
-    form_content.append(
-        Input(id="form_counter_value", type="hidden", name="counter_value", value="1")
-    )
-    
-    # เพิ่มปุ่ม submit ลงใน form
-    form_content.append(
-        Button("Select", type="submit", style={
-            "background-color": "#FF3333", 
-            "color": "white", 
-            "padding": "10px 20px", 
-            "border-radius": "5px", 
-            "border": "none", 
-            "cursor": "pointer",
-            "font-size": "18px"
-        })
-    )
-    
-    form = Form(*form_content, method="post", action=f"/submit_food/{food.get_food_id()}")
-    container_content.append(form)
-    
-    # --- Script: อัปเดต counter และอัปเดต input hidden ใน form ---
-    container_content.append(
-        Script("""
-            let counterValue = 1;  // Initialize counter with 1
-            document.getElementById("counter").innerText = counterValue;
-            function updateCounter(action) {
-                if (action === 'increase') {
-                    counterValue++;
-                } else if (action === 'decrease' && counterValue > 1) {
-                    counterValue--;
-                }
-                document.getElementById("counter").innerText = counterValue;
-                document.getElementById("form_counter_value").value = counterValue;
-            }
-        """)
-    )
-    return Container(*container_content)
+        is_drink = isinstance(food, Drink)
+        levels = ["ไม่หวาน", "หวานน้อย", "ปกติ", "หวานมาก"] if is_drink else ["ไม่เผ็ด", "เผ็ดน้อย", "เผ็ดมาก", "เผ็ดมากสุดๆ", "เผ็ดนรก"]
+        options.append(product_option("ระดับความหวาน" if is_drink else "ระดับความเผ็ด", "select_sweet_level", levels, 0))
+    return product_detail_page(food, category, options, f"/submit_food/{food_id}")
 
 
 @rt("/submit_food/{food_id}", methods=["POST"])
@@ -1932,681 +1747,557 @@ def get():
     return grid_content
 
 @rt("/menu")
-def get():
+def menu_page():
     member = session.get_current_user()
-    menu = system.get_boxset_list()
-    
-    # สร้าง Grid ของ Boxset แต่ละอัน
-    grid_content = [
-        navbar(),  # เรียกใช้ Navbar
-        order_section(),  # เรียกใช้ Order Section
-        Div(  # หัวข้อของหน้า
-            H2("Box Set Menu", style={"text-align": "center", "margin-top": "40px", "font-size": "40px"}),
-            style={"width": "100%"}
+    categories = [
+        ("boxsets", "ชุดอาหาร", "BOX SETS", system.get_boxset_list()),
+        ("savory", "อาหารจานเดี่ยว", "À LA CARTE",
+         [food for food in system.get_menu_list() if isinstance(food, Savory)]),
+        ("desserts", "ของหวาน", "DESSERTS",
+         [food for food in system.get_menu_list() if isinstance(food, Dessert)]),
+        ("drinks", "เครื่องดื่ม", "DRINKS",
+         [food for food in system.get_menu_list() if isinstance(food, Drink)]),
+    ]
+
+    def menu_card(item):
+        is_boxset = isinstance(item, Boxset)
+        href = (f"/boxset/{item.get_boxset_id()}" if is_boxset
+                else f"/food/{item.get_food_id()}")
+        description = (
+            " · ".join(food.get_name() for food in item.get_fixed_menu())
+            if is_boxset else
+            ("เลือกระดับความหวานได้" if isinstance(item, Drink)
+             else "เลือกระดับความเผ็ดได้") if item.get_select() else ""
         )
-    ]
-    if isinstance(member,Manager):
-        grid_content = [ managebar()
-    ]
-        grid_content.append(Div(
-        H3("WELCOME MANAGER", style={
-                "background": "none",
-                "border": "none",
-                "color": "red",
-                "font-size": "24px",
-                "cursor": "pointer",
-                "padding": "10px 20px",
-            }),
-        style={
-            "background-color": "black",
-            "color": "white",
-            "display": "flex",
-            "align-items": "center",
-            "justify-content": "center",
-            "height": "10vh",
-            "width": "99vw",
-            "margin": "0",
-            "padding": "0",
-            "box-sizing": "border-box",
-        }
-            ))
-    # ใช้ Grid Layout เพื่อจัดเรียงการ์ดให้สวย
-    boxset_grid = Grid(
-        *[
-            Card(
-                H3(boxset.get_name(), style={"color": "black", "font-size": "20px", "margin-bottom": "10px"}),
-                P(f"Price: {boxset.get_price()} THB", style={"color": "#666", "font-size": "16px"}),
-                P(f"Main menu: {', '.join([food.get_name() for food in boxset.get_fixed_menu()])}",
-                  style={"color": "#444", "font-size": "14px"}),
-                A(
-                    Button("Select", style={
-                        "background": "green",
-                        "color": "white",
-                        "border": "none",
-                        "padding": "10px 20px",
-                        "cursor": "pointer",
-                        "border-radius": "5px"
-                    }), 
-                    href=f"/boxset/{boxset.get_boxset_id()}"
+        return Article(
+            A(
+                Div(
+                    Span("ยังไม่มีรูปภาพ", cls="menu-image-fallback", aria_hidden="true"),
+                    Img(src=item.get_picture(), alt=item.get_name(),
+                        loading="lazy", decoding="async", width="480", height="388",
+                        onerror="this.hidden = true; this.previousElementSibling.hidden = false;",
+                        cls="menu-image"),
+                    cls="menu-photo",
                 ),
-                style={
-                    "background-color": "white",
-                    "border": "1px solid #ddd",
-                    "border-radius": "10px",
-                    "padding": "20px",
-                    "box-shadow": "0 4px 8px rgba(0, 0, 0, 0.1)",
-                    "display": "flex",
-                    "flex-direction": "column",
-                    "align-items": "center",
-                    "gap": "10px",
-                    "text-align": "center",
-                    "width": "250px"
-                }
-            ) for boxset in menu
-        ],
-        style={
-            "display": "grid",
-            "grid-template-columns": "repeat(auto-fill, minmax(250px, 1fr))",  # จัดให้การ์ดเรียงในรูปแบบ Grid
-            "gap": "20px",
-            "padding": "20px",
-            "justify-content": "center"
-        }
-    )
-
-    grid_content.append(boxset_grid)
-    grid_content.append(
-        Div(  # หัวข้อของหน้า
-            H2("Menu", style={"text-align": "center", "margin-bottom": "40px" , "font-weight" : "750", "font-size" : "50px"}),
-            style={"width": "100%"}
-        )
-    )
-    menu_type = [Savory, Dessert, Drink]
-
-    for type in menu_type:
-        menu_in_type = []  # ✅ ย้ายเข้าไปในลูปเพื่อเคลียร์ค่าเก่า
-    
-        grid_content.append(H2(type.__name__, style={"text-align": "center", "margin-bottom": "20px"}))  # ✅ แก้ type เป็นชื่อคลาส
-    
-        for menu in system.get_menu_list():
-            if isinstance(menu, type):
-                menu_in_type.append(menu)
-
-        menu_grid = Grid(
-            *[
-                Card(
-                    H3(food.get_name(), style={"text-align": "center", "margin-bottom": "20px"}),
-                    P(f"Price: {food.get_price()} THB", style={"color": "#666", "font-size": "16px"}),
-                    A(
-                        Button("Select", style={
-                        "background": "green",
-                        "color": "white",
-                        "border": "none",
-                        "padding": "10px 20px",
-                        "cursor": "pointer",
-                        "border-radius": "5px"
-                        }), 
-                        href=f"/food/{food.get_id()}"  # ✅ เปลี่ยนจาก boxset.get_boxset_id() เป็น food.get_id()
+                Div(
+                    H3(item.get_name()),
+                    P(description, cls="menu-description") if description else None,
+                    Div(
+                        Strong(f"฿{item.get_price():,.0f}", cls="menu-price"),
+                        Span("เลือกเมนู", Span(" →", aria_hidden="true"), cls="menu-select"),
+                        cls="menu-card-bottom",
                     ),
-                    style={
-                        "background-color": "white",
-                        "border": "1px solid #ddd",
-                        "border-radius": "10px",
-                        "padding": "20px",
-                        "box-shadow": "0 4px 8px rgba(0, 0, 0, 0.1)",
-                        "display": "flex",
-                        "flex-direction": "column",
-                        "align-items": "center",
-                        "gap": "10px",
-                        "text-align": "center",
-                        "width": "250px"
-                    }
-                ) for food in menu_in_type
-            ],
-            style={
-                "display": "grid",
-                "grid-template-columns": "repeat(auto-fill, minmax(250px, 1fr))",
-                "gap": "20px",
-                "padding": "20px",
-                "justify-content": "center"
-            }
+                    cls="menu-card-content",
+                ),
+                href=href, cls="menu-card-link",
+            ),
+            cls="menu-card",
         )
 
-        grid_content.append(menu_grid)  # ✅ เพิ่ม Grid ลงไปใน grid_content
-
-
-
-    
-    return Container(
-        *grid_content
+    return (
+        Title("เมนูอาหาร | OUR SERVICE"),
+        Style("""
+            @import url('https://fonts.googleapis.com/css2?family=K2D:wght@400;500;600;700&display=swap');
+            body:has(.menu-page) { margin: 0; background: #fff; }
+            main.container:has(.menu-page) { width: 100%; max-width: none; padding: 0; }
+            .menu-page {
+                --menu-red: #c92027; --menu-ink: #202020; --menu-muted: #666;
+                color-scheme: light; background: #fff; color: var(--menu-ink);
+                font-family: 'K2D', sans-serif; font-size: 16px; min-height: 100vh;
+                --pico-color: #202020; --pico-h1-color: #202020;
+                --pico-h2-color: #202020; --pico-h3-color: #202020;
+            }
+            .menu-page *, .menu-page *::before, .menu-page *::after { box-sizing: border-box; }
+            .menu-page a { text-decoration: none; }
+            .menu-page a:focus-visible, .menu-page button:focus-visible {
+                outline: 3px solid var(--menu-red); outline-offset: 5px;
+            }
+            .menu-header > div {
+                max-width: 1280px; margin-inline: auto; padding: 12px 32px;
+                flex-wrap: wrap;
+            }
+            .menu-header button { margin-bottom: 0; width: auto; font-family: inherit; }
+            .menu-header .site-navbar > button:nth-child(2) {
+                color: var(--menu-red) !important; font-weight: 700 !important;
+            }
+            .menu-order { background: #202020; }
+            .menu-order > div {
+                max-width: 1280px !important; width: 100% !important; height: auto !important;
+                min-height: 66px; padding: 12px 32px !important; gap: 20px;
+                background: #202020 !important; flex-wrap: wrap;
+            }
+            .menu-order h2, .menu-order h5 {
+                margin: 0 !important; font-size: 15px; font-weight: 500; letter-spacing: .02em;
+            }
+            .menu-order button {
+                width: auto; margin: 0; padding: 8px 18px !important;
+                color: #fff !important; background: var(--menu-red) !important;
+                border-radius: 3px; font-family: inherit; font-size: 14px !important;
+            }
+            .menu-shell { max-width: 1216px; margin: auto; padding: 0 32px 80px; }
+            .menu-intro { padding: 48px 0 28px; }
+            .menu-eyebrow {
+                margin: 0 0 12px; color: var(--menu-red); font-size: 12px;
+                font-weight: 700; letter-spacing: .16em;
+                display: flex; align-items: center; gap: 10px;
+            }
+            .menu-eyebrow::before { content: ''; width: 26px; height: 3px; background: var(--menu-red); }
+            .menu-intro h1 { margin: 0 0 10px; font-size: clamp(32px, 4vw, 48px); line-height: 1.25; }
+            .menu-intro > p:last-child { margin: 0; color: var(--menu-muted); font-size: 16px; }
+            .menu-categories {
+                position: sticky; top: 0; z-index: 5; display: flex; justify-content: flex-start;
+                gap: 32px; overflow-x: auto; background: #fff;
+                border-bottom: 1px solid #dedbd6; margin-bottom: 36px;
+                scrollbar-width: thin;
+            }
+            .menu-categories a {
+                display: inline-flex; flex-shrink: 0; align-items: center; gap: 9px;
+                padding: 17px 0; color: var(--menu-muted); font-weight: 600;
+                border-bottom: 3px solid transparent;
+            }
+            .menu-categories a:hover, .menu-categories a[aria-current="location"] {
+                color: var(--menu-red); border-bottom-color: var(--menu-red);
+            }
+            .menu-categories a span { color: #777; font-size: 12px; font-weight: 400; }
+            .menu-section { scroll-margin-top: 96px; margin: 0 0 48px; }
+            .menu-section-heading {
+                display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px;
+                margin-bottom: 20px;
+            }
+            .menu-section-heading h2 { margin: 0; font-size: 26px; font-weight: 700; }
+            .menu-section-heading span { color: var(--menu-muted); font-size: 11px; letter-spacing: .12em; }
+            .menu-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 24px; }
+            .menu-card {
+                min-width: 0; margin: 0; padding: 0; overflow: hidden;
+                border: 1px solid #e5e2dd; border-radius: 4px; background: white; box-shadow: none;
+            }
+            .menu-card-link { height: 100%; display: flex; flex-direction: column; color: inherit; }
+            .menu-card-link:hover { color: inherit; }
+            .menu-card:has(a:hover) { border-color: #bbb5ac; }
+            .menu-photo { position: relative; aspect-ratio: 1.65; background: #f5f4f0; overflow: hidden; }
+            .menu-image {
+                position: relative; display: block; width: 100%; height: 100%;
+                object-fit: contain; padding: 12px; transition: transform .18s ease;
+            }
+            .menu-image[hidden] { display: none; }
+            .menu-image-fallback { display: none; position: absolute; inset: 0; place-items: center; color: #777; font-size: 14px; }
+            .menu-photo:has(.menu-image[hidden]) .menu-image-fallback { display: grid; }
+            .menu-card-link:hover .menu-image { transform: scale(1.035); }
+            .menu-card-content { flex: 1; display: flex; flex-direction: column; padding: 20px; }
+            .menu-card h3 { margin: 0; font-size: 19px; line-height: 1.5; font-weight: 600; }
+            .menu-description { margin: 7px 0 0; font-size: 13px; line-height: 1.65; color: var(--menu-muted); }
+            .menu-card-bottom { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: auto; padding-top: 22px; }
+            .menu-price { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
+            .menu-select { color: var(--menu-red); font-size: 14px; font-weight: 600; }
+            .menu-card-link:hover .menu-select { text-decoration: underline; text-underline-offset: 4px; }
+            .menu-empty { color: var(--menu-muted); padding: 24px 0; border-top: 1px solid #e5e2dd; }
+            .menu-end { border-top: 1px solid #dedbd6; padding-top: 24px; display: flex; justify-content: space-between; gap: 20px; font-size: 13px; }
+            .menu-end span { color: var(--menu-muted); }
+            .menu-end a { color: var(--menu-ink); }
+            @media (max-width: 850px) {
+                .menu-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+                .menu-header > div { padding: 12px 20px; }
+                .menu-header > div > button:first-child { font-size: 26px !important; padding-left: 0 !important; }
+                .menu-header > div > div { gap: 0 !important; }
+                .menu-header button { padding: 10px !important; font-size: 13px !important; }
+            }
+            @media (max-width: 540px) {
+                .menu-shell { padding: 0 20px 48px; }
+                .menu-intro { padding-top: 32px; }
+                .menu-intro > p:last-child { font-size: 14px; }
+                .menu-header > div > div { width: 100%; justify-content: flex-end; }
+                .menu-order > div { padding: 14px 20px !important; gap: 10px; }
+                .menu-order h2, .menu-order h5 { font-size: 12px; }
+                .menu-categories { gap: 24px; margin-bottom: 28px; }
+                .menu-categories a { font-size: 14px; }
+                .menu-grid { grid-template-columns: 1fr; gap: 20px; }
+                .menu-photo { aspect-ratio: 1.9; }
+                .menu-section-heading h2 { font-size: 23px; }
+                .menu-section { margin-bottom: 36px; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                .menu-image { transition: none; }
+                .menu-card-link:hover .menu-image { transform: none; }
+            }
+        """),
+        Div(
+            Div(managebar() if isinstance(member, Manager) else navbar(), cls="menu-header"),
+            Div(order_section(), cls="menu-order"),
+            Div(
+                Header(
+                    P("OUR SERVICE / MENU", cls="menu-eyebrow"),
+                    H1("เมนูของเรา"),
+                    P("เลือกชุดโปรด หรือจัดมื้ออร่อยในแบบของคุณ"),
+                    cls="menu-intro", id="menu-top",
+                ),
+                Nav(
+                    *[A(label, Span(str(len(items))), href=f"#{key}",
+                        aria_current="location" if index == 0 else None)
+                      for index, (key, label, english, items) in enumerate(categories)],
+                    cls="menu-categories", aria_label="หมวดหมู่อาหาร",
+                ),
+                *[Section(
+                    Div(H2(label), Span(english), cls="menu-section-heading"),
+                    Div(*[menu_card(item) for item in items], cls="menu-grid")
+                    if items else P("ยังไม่มีเมนูในหมวดนี้", cls="menu-empty"),
+                    id=key, cls="menu-section",
+                  ) for key, label, english, items in categories],
+                Footer(Span("OUR SERVICE"), A("กลับด้านบน ↑", href="#menu-top"), cls="menu-end"),
+                cls="menu-shell",
+            ),
+            cls="menu-page",
+        ),
+        Script("""
+            (() => {
+                const page = document.querySelector('.menu-page');
+                if (!page) return;
+                const links = [...page.querySelectorAll('.menu-categories a')];
+                const sections = [...page.querySelectorAll('.menu-section')];
+                const update = () => {
+                    const active = sections.filter(section => section.getBoundingClientRect().top <= 140).pop() || sections[0];
+                    links.forEach(link => {
+                        if (link.hash === '#' + active.id) link.setAttribute('aria-current', 'location');
+                        else link.removeAttribute('aria-current');
+                    });
+                };
+                const controller = new AbortController();
+                window.addEventListener('scroll', () => {
+                    if (!page.isConnected) { controller.abort(); return; }
+                    update();
+                }, { passive: true, signal: controller.signal });
+                update();
+            })();
+        """),
     )
+
+
+@rt("/basket/quantity", methods=["POST"])
+def update_basket_quantity(item_id: str, change: int, coupon_code: str = ""):
+    member = session.get_current_user()
+    if not member:
+        return Redirect('/fail')
+    if isinstance(member, Manager):
+        return Redirect('/menu')
+    basket = member.get_current_basket()
+    if basket:
+        basket.change_quantity(item_id, change)
+    return Redirect('/basket?' + urlencode({'coupon_code': coupon_code}))
 
 
 @rt("/basket")
-def view_basket(coupon_code: str = ""):
-    print(f"Received Coupon Code: {coupon_code}")  # Debugging
-
+def view_basket(coupon_code: str = None):
     member = session.get_current_user()
-
     if not member:
         return Redirect('/fail')
+    if isinstance(member, Manager):
+        return Redirect('/menu')
 
-    basket = member.get_current_basket().check_empty()
+    items, total_price, discount_applied, discount_include = member.view_basket(coupon_code)
+    coupon_code = member.get_current_basket().get_coupon_code()
+    quantity = sum(int(item['quantity']) for item in items)
 
+    def basket_item(item):
+        product = item['name']
+        details = []
+        if isinstance(product, Drink) and product.get_select():
+            details.append(P(f"ความหวาน: {product.get_select()}", cls="basket-muted"))
+        elif isinstance(product, Savory) and product.get_select():
+            details.append(P(f"ความเผ็ด: {product.get_select()}", cls="basket-muted"))
+        elif isinstance(product, Boxset):
+            details.append(P(f"เมนูที่เลือก: {product.get_selected_menu()}", cls="basket-muted"))
+        return Article(
+            Div(Span("ไม่มีรูปภาพ", cls="basket-image-fallback"),
+                Img(src=product.get_picture(), alt=product.get_name(), loading="lazy",
+                    onerror="this.hidden=true", width="112", height="112"), cls="basket-photo"),
+            Div(H3(product.get_name()), *details,
+                P(f"฿{product.get_price():,.2f} / รายการ", cls="basket-muted"),
+                Form(
+                    Input(type="hidden", name="item_id", value=item['item_id']),
+                    Input(type="hidden", name="coupon_code", value=coupon_code),
+                    Button("−", type="submit", name="change", value="-1",
+                           aria_label=f"ลดจำนวน {product.get_name()}"),
+                    Span(str(item['quantity']), aria_label="จำนวนสินค้า", cls="basket-quantity"),
+                    Button("+", type="submit", name="change", value="1",
+                           aria_label=f"เพิ่มจำนวน {product.get_name()}"),
+                    action="/basket/quantity", method="post", cls="basket-stepper"),
+                cls="basket-item-info"),
+            Strong(f"฿{product.get_price() * int(item['quantity']):,.2f}", cls="basket-line-price"),
+            cls="basket-item",
+        )
 
-
-    if basket:
-        items, total_price, discount_applied, discount_include = member.view_basket(coupon_code)
-        order_type_text = None
-        if isinstance(member.get_order_type(), Delivery):
-            order_type_text = H2("Order Type : Delivery",style={"margin-top": "10px", "margin-bottom": "20px"})    
-        elif isinstance(member.get_order_type(), PickUp):
-             order_type_text = H2("Order Type : Pickup",style={"margin-top": "10px", "margin-bottom": "20px"}) 
-        else:
-            order_type_text = H2("PLEASE SELECT ORDER TYPE",style={"margin-top": "10px", "margin-bottom": "20px"})
-        
-        
-        return Container(
-            
-        navbar(),  
-        order_section(),  
-        
-    H1("Your Basket",style={"margin-top": "20px", "margin-bottom": "50px"}),
-    order_type_text,
-    Grid(
-        *[
-            Card(
-                H3(item["name"].get_name()),
-                P(f"Quantity: {item['quantity']}"),
-                P(f"{item['name'].get_price()} THB"),
-                # ตรวจสอบและแสดงระดับความหวานหรือความเผ็ด
-                *[
-                    P(f"Sweets Level: {item["name"].get_select()}") if (isinstance(item["name"],Drink)) and (item["name"].get_select()) else None,
-                    P(f"Spiciness Level: {item["name"].get_select()}") if (isinstance(item["name"],Savory)) and (item["name"].get_select()) else None,
-                    P(f"Select menu: {item["name"].get_selected_menu()}") if (isinstance(item["name"],Boxset)) else None,
-                ]
-            )
-            for item in items
-        ]
-    ),
-    Form(
-        Label("Enter coupon code", Input(name="coupon_code", placeholder="Coupon code", value=coupon_code)),
-        Button("Use Code"),
-        method="get",
-        action="/basket"
-    ),
-    Div(
-        H3(f"Total Price (Before Discount): {total_price:.2f} THB",style={"margin-top": "30px", "margin-bottom": "10px"}),
-        H3(f"Discount Applied: {discount_applied:.2f} THB",style={"margin-top": "30px", "margin-bottom": "10px"}),
-        H3(f"Total After Discount: {discount_include:.2f} THB",style={"margin-top": "30px", "margin-bottom": "30px"}),
-        Button("Checkout", onclick="window.location='/payment'", style="background-color: green; color: white; padding: 10px 20px; border: none;")
-    ),
-)
-    else:
-        grid_content = [
-    navbar(),  # เรียกใช้ Navbar
-    order_section(),  # เรียกใช้ Order Section
-]
-
-    grid_content.append(
-    Div(
-        # พื้นหลังสี่เหลี่ยม
-        Div(
-            # รูปภาพ (อยู่ซ้าย)
-            Img(
-                id="image",
-                src="https://www.kfc.co.th/static/media/empty_cart.32f17a45.png",
-                style={
-                    "width": "200px",  # กำหนดขนาดรูป
-                    "height": "200px",
-                    "object-fit": "contain",  # ป้องกันภาพผิดสัดส่วน
-                    "margin-right": "20px"  # เว้นระยะระหว่างรูปกับข้อความ
-                }
-            ),
-            # ข้อความ (อยู่ขวา)
-            Div(
-                H3("Basket is empty", style={
-                    "color": "white",  # ตัวอักษรสีขาว
-                    "font-size": "24px",
-                    "margin": "0"
-                }),
-                P("Your shopping cart is currently empty.", style={
-                    "color": "white",  # ตัวอักษรสีขาว
-                    "font-size": "16px",
-                    "margin-top": "5px"
-                }),
-                style={
-                    "display": "flex",
-                    "flex-direction": "column",  # ให้ข้อความอยู่เป็นแนวตั้ง
-                    "justify-content": "center"  # จัดให้อยู่ตรงกลางแนวตั้ง
-                }
-            ),
-            style={
-                "display": "flex",
-                "align-items": "center",  # จัดให้รูปและข้อความอยู่ตรงกลางแนวตั้ง
-                "background": "#ff0000",  # สีพื้นหลัง (สีแดง)
-                "padding": "20px",  # เพิ่มระยะห่างภายใน
-                "border-radius": "10px",  # ขอบมน
-                "width": "60%",  # กำหนดความกว้างของกล่อง
-                "margin": "auto",  # จัดให้อยู่ตรงกลางของหน้าจอ
-                "box-shadow": "0px 4px 10px rgba(0,0,0,0.2)"  # เพิ่มเงาให้ดูสวยงาม
-            }
+    content = Div(
+        Section(
+            Div(H2("รายการอาหาร"), Span(f"{quantity} ชิ้น", cls="basket-muted"), cls="basket-section-title"),
+            *[basket_item(item) for item in items],
+            A("← เลือกเมนูเพิ่ม", href="/menu", cls="basket-more"),
+            cls="basket-items", aria_label="รายการในตะกร้า",
         ),
-        style={
-            "display": "flex",
-            "justify-content": "center",  # จัดให้อยู่กลางหน้าจอ
-            "align-items": "center",
-            "height": "100vh",  # ให้เต็มจอแนวตั้ง
-            "background": "#f4f4f4"  # สีพื้นหลังของหน้าจอ
-        }
+        Aside(
+            H2("สรุปคำสั่งซื้อ"),
+            Form(Label("โค้ดส่วนลด", fr="basket-coupon"),
+                 Div(Input(type="text", id="basket-coupon", name="coupon_code", placeholder="กรอกโค้ดส่วนลด",
+                           value=coupon_code, autocomplete="off"),
+                     Button("ใช้โค้ด", type="submit"), cls="basket-coupon-row"),
+                 P("ใช้โค้ดส่วนลดแล้ว" if discount_applied else "ไม่พบโค้ดส่วนลดนี้",
+                   cls="basket-coupon-message", role="status") if coupon_code else None,
+                 action="/basket", method="get", cls="basket-coupon"),
+            Div(Span("ยอดรวมสินค้า"), Span(f"฿{total_price:,.2f}"), cls="basket-total-row"),
+            Div(Span("ส่วนลด"), Span(f"−฿{discount_applied:,.2f}"), cls="basket-total-row basket-discount"),
+            Div(Strong("ยอดรวมสุทธิ"), Strong(f"฿{discount_include:,.2f}"), cls="basket-total-row basket-grand-total"),
+            A("ดำเนินการชำระเงิน →", href="/payment", cls="basket-primary"),
+            cls="basket-summary", aria_label="สรุปคำสั่งซื้อ",
+        ), cls="basket-layout",
+    ) if items else Section(
+        Div(Span("0"), cls="basket-empty-icon", aria_hidden="true"),
+        P("พร้อมสำหรับมื้ออร่อยหรือยัง?", cls="basket-eyebrow"),
+        H2("ตะกร้าของคุณยังว่างอยู่"),
+        P("เลือกเมนูโปรด แล้วกลับมาสั่งความอร่อยได้ที่นี่", cls="basket-muted"),
+        A("เลือกเมนูอาหาร →", href="/menu", cls="basket-primary"), cls="basket-empty",
     )
-)
+    return (
+        Title("ตะกร้าของคุณ | OUR SERVICE"),
+        Style("""
+            @import url('https://fonts.googleapis.com/css2?family=K2D:wght@400;500;600;700&display=swap');
+            body:has(.basket-page) { margin:0; background:#fff; }
+            main.container:has(.basket-page) { width:100%; max-width:none; padding:0; }
+            .basket-page { color-scheme:light; background:#fff; color:#202020; font-family:'K2D',sans-serif;
+                font-size:16px; min-height:100vh; --pico-color:#202020; --pico-h1-color:#202020;
+                --pico-h2-color:#202020; --pico-h3-color:#202020; }
+            .basket-page *, .basket-page *::before, .basket-page *::after { box-sizing:border-box; }
+            .basket-page a { color:#c92027; text-decoration:none; }
+            .basket-page button, .basket-page input { font-family:inherit; }
+            .basket-page :is(a,button,input):focus-visible { outline:3px solid #c92027; outline-offset:4px; }
+            .basket-header > div { max-width:1280px; margin:auto; padding:12px 32px; flex-wrap:wrap; }
+            .basket-header button { width:auto; margin:0; }
+            .basket-header .site-navbar > div > button:first-child { color:#c92027 !important; font-weight:700 !important; }
+            .basket-order { background:#202020; }
+            .basket-order > div { width:100% !important; max-width:1280px !important; height:auto !important;
+                min-height:66px; margin:auto !important; padding:12px 32px !important; gap:20px;
+                flex-wrap:wrap; background:#202020 !important; }
+            .basket-order h2, .basket-order h5 { margin:0 !important; font-size:15px; }
+            .basket-order button { width:auto; margin:0; background:#c92027 !important; color:#fff !important;
+                font-size:14px !important; border-radius:3px; }
+            .basket-shell { max-width:1216px; margin:auto; padding:40px 32px 72px; }
+            .basket-eyebrow { color:#c92027; font-size:12px; font-weight:700; letter-spacing:.12em; margin:0 0 12px; }
+            .basket-intro { margin-bottom:36px; }
+            .basket-intro h1 { font-size:clamp(32px,4vw,48px); margin:0 0 10px; line-height:1.3; }
+            .basket-muted { color:#707070; font-size:14px; margin:0; }
+            .basket-layout { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr); gap:40px; align-items:start; }
+            .basket-page h2 { font-size:22px; margin:0; }
+            .basket-section-title { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-bottom:20px; border-bottom:1px solid #e5e2dd; }
+            .basket-item { display:grid; grid-template-columns:112px minmax(0,1fr) auto; gap:20px; align-items:center;
+                margin:0; padding:24px 0; background:transparent; border-bottom:1px solid #e5e2dd; border-radius:0; box-shadow:none; }
+            .basket-photo { position:relative; width:112px; height:112px; background:#f5f3ef; border-radius:4px; overflow:hidden; }
+            .basket-photo img { position:relative; width:100%; height:100%; object-fit:contain; background:#f5f3ef; }
+            .basket-photo img[hidden] { display:none; }
+            .basket-image-fallback { position:absolute; inset:0; display:grid; place-items:center; color:#707070; font-size:12px; }
+            .basket-item h3 { font-size:18px; line-height:1.5; margin:0 0 6px; }
+            .basket-item-info { overflow-wrap:anywhere; }
+            .basket-item-info p { margin-bottom:6px; }
+            .basket-stepper { display:inline-flex; align-items:center; margin:8px 0 0; gap:0;
+                border:1px solid #d9d5cf; border-radius:4px; background:#fff; }
+            .basket-stepper button { width:40px; height:40px; margin:0; padding:0; border:0;
+                border-radius:3px; background:#fff; color:#202020; font-size:20px; }
+            .basket-stepper button:hover { background:#f5f3ef; }
+            .basket-quantity { min-width:36px; text-align:center; font-size:14px; }
+            .basket-line-price { font-size:18px; white-space:nowrap; }
+            .basket-more { display:inline-block; margin-top:24px; font-size:14px; font-weight:600; }
+            .basket-more:hover { text-decoration:underline; }
+            .basket-summary { padding:28px; background:#f8f7f4; border:1px solid #e5e2dd; border-top:3px solid #c92027; border-radius:4px; }
+            .basket-coupon { margin:12px 0; padding-bottom:12px; border-bottom:1px solid #dedbd6; }
+            .basket-coupon label { color:#202020; font-size:14px; margin-bottom:8px; }
+            .basket-summary { min-width:0; }
+            .basket-coupon-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+            .basket-coupon-row input { min-width:0; width:100%; margin:0; height:46px; padding:10px 12px;
+                border:1px solid #d9d5cf; border-radius:3px; background:#fff; color:#202020; font-size:14px; }
+            .basket-coupon-row button { width:auto; white-space:nowrap; margin:0; padding:10px 16px; border:1px solid #202020;
+                border-radius:3px; background:#202020; color:#fff; font-size:14px; }
+            .basket-coupon-message { margin:10px 0 0; font-size:13px; color:#c92027; }
+            .basket-total-row { display:flex; justify-content:space-between; gap:16px; margin-bottom:14px; font-size:14px; font-variant-numeric:tabular-nums; }
+            .basket-discount { color:#c92027; }
+            .basket-grand-total { border-top:1px solid #dedbd6; padding-top:20px; margin:20px 0 24px; font-size:20px; }
+            .basket-page .basket-primary { display:block; padding:15px 20px; background:#c92027; color:#fff; border-radius:4px; text-align:center; font-size:16px; font-weight:600; }
+            .basket-page .basket-primary:hover { background:#a8171d; }
+            .basket-empty { padding:56px 24px; text-align:center; background:#f8f7f4; border:1px solid #e5e2dd; border-radius:4px; }
+            .basket-empty h2 { margin-bottom:12px; font-size:clamp(24px,3vw,30px); }
+            .basket-empty .basket-primary { max-width:260px; margin:28px auto 0; }
+            .basket-empty-icon { position:relative; display:grid; place-items:center; width:68px; height:60px; margin:12px auto 32px;
+                border:3px solid #c92027; border-radius:5px 5px 16px 16px; color:#c92027; font-size:24px; }
+            .basket-empty-icon::before { content:''; position:absolute; width:30px; height:18px; top:-18px; border:3px solid #c92027; border-bottom:0; border-radius:14px 14px 0 0; }
+            @media(max-width:850px) {
+                .basket-layout { grid-template-columns:1fr; gap:32px; }
+                .basket-header > div { padding:12px 20px; }
+                .basket-header .site-navbar > button:first-child { font-size:26px !important; padding-left:0 !important; }
+                .basket-header .site-navbar > div { gap:0 !important; flex-wrap:wrap; }
+                .basket-header button { padding:10px !important; font-size:13px !important; }
+            }
+            @media(max-width:540px) {
+                .basket-shell { padding:28px 20px 48px; }
+                .basket-header .site-navbar > div { width:100%; justify-content:flex-end; }
+                .basket-order > div { padding:14px 20px !important; gap:10px; }
+                .basket-order h2, .basket-order h5 { font-size:12px; }
+                .basket-item { grid-template-columns:80px minmax(0,1fr); gap:12px; }
+                .basket-photo { width:80px; height:80px; }
+                .basket-line-price { grid-column:2; }
+                .basket-summary { padding:22px; }
+                .basket-empty { padding:44px 20px; }
+            }
+        """),
+        Div(Div(navbar(), cls="basket-header"), Div(order_section(), cls="basket-order"),
+            Div(Header(P("OUR SERVICE / BASKET", cls="basket-eyebrow"), H1("ตะกร้าของคุณ"),
+                       P("ตรวจสอบรายการโปรด ก่อนสั่งความอร่อย", cls="basket-muted"), cls="basket-intro"),
+                content, cls="basket-shell"), cls="basket-page"),
+    )
 
 
-    return grid_content
+
+def fulfillment_page(title, subtitle, content, selection=False):
+    return (
+        Title(title + " | OUR SERVICE"),
+        Style("""
+            @import url('https://fonts.googleapis.com/css2?family=K2D:wght@400;500;600;700&display=swap');
+            body:has(.fulfillment-page) { margin:0; background:#fff; }
+            main.container:has(.fulfillment-page) { width:100%; max-width:none; padding:0; }
+            .fulfillment-page { color-scheme:light; min-height:100vh; background:#fff; color:#202020;
+                font-family:'K2D',sans-serif; font-size:16px; --pico-color:#202020;
+                --pico-h1-color:#202020; --pico-h2-color:#202020; --pico-h3-color:#202020; }
+            .fulfillment-page *, .fulfillment-page *::before, .fulfillment-page *::after { box-sizing:border-box; }
+            .fulfillment-page :is(button,input,textarea) { font-family:inherit; }
+            .fulfillment-page a { color:#c92027; text-decoration:none; }
+            .fulfillment-page :is(a,button,input,textarea):focus-visible { outline:3px solid #c92027; outline-offset:4px; }
+            .fulfillment-header { border-bottom:1px solid #e5e2dd; }
+            .fulfillment-header > div { max-width:1280px; margin:auto; padding:12px 32px; flex-wrap:wrap; }
+            .fulfillment-header button { width:auto; margin:0; }
+            .fulfillment-banner { background:#202020; color:#fff; padding:18px 24px; text-align:center; font-size:14px; }
+            .fulfillment-shell { max-width:1120px; margin:auto; padding:40px 32px 72px; }
+            .fulfillment-back { display:inline-block; font-size:14px; margin-bottom:28px; }
+            .fulfillment-back:hover { text-decoration:underline; }
+            .fulfillment-eyebrow { color:#c92027; font-size:12px; font-weight:700; letter-spacing:.12em; margin:0 0 12px; }
+            .fulfillment-intro { margin-bottom:32px; }
+            .fulfillment-intro h1 { font-size:clamp(28px,4vw,44px); line-height:1.3; margin:0 0 12px; }
+            .fulfillment-muted { color:#707070; font-size:14px; line-height:1.8; margin:0; }
+            .fulfillment-methods { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
+            .fulfillment-page .fulfillment-method { display:flex; flex-direction:column; align-items:flex-start;
+                padding:32px; gap:14px; background:#f8f7f4; border:1px solid #e5e2dd; border-radius:4px; color:#202020; }
+            .fulfillment-method:hover { border-color:#c92027; background:#fff5f3; }
+            .fulfillment-page h2 { font-size:22px; margin:0 0 12px; }
+            .fulfillment-method h2 { margin:0; }
+            .fulfillment-icon { display:grid; place-items:center; width:56px; height:56px; background:#fff;
+                border:1px solid #e5e2dd; border-radius:4px; color:#c92027; font-size:26px; }
+            .fulfillment-action { color:#c92027; font-weight:600; margin-top:12px; }
+            .fulfillment-layout { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(0,1fr); gap:32px; align-items:start; }
+            .fulfillment-panel { min-width:0; padding:28px; background:#f8f7f4; border:1px solid #e5e2dd; border-radius:4px; }
+            .fulfillment-panel form { margin:24px 0 0; }
+            .fulfillment-page label { display:block; color:#202020; font-size:15px; font-weight:500; margin-bottom:10px; }
+            .fulfillment-page :is(input,textarea) { width:100%; margin:0 0 12px; padding:14px 16px; background:#fff;
+                color:#202020; border:1px solid #ccc; border-radius:4px; font-size:16px; box-shadow:none; }
+            .fulfillment-page textarea { min-height:150px; resize:vertical; }
+            .fulfillment-page :is(input,textarea)::placeholder { color:#777; }
+            .fulfillment-page .fulfillment-primary, .fulfillment-page .select-button { display:block; width:100%; margin:20px 0 0;
+                padding:14px 20px; background:#c92027; border:1px solid #c92027; border-radius:4px;
+                color:#fff; font-size:16px; font-weight:600; text-align:center; cursor:pointer; }
+            .fulfillment-page .fulfillment-primary:hover, .fulfillment-page .select-button:hover { background:#a8171d; }
+            .fulfillment-selected { border-top:3px solid #c92027; padding-top:24px; min-width:0; }
+            .fulfillment-selection { margin:20px 0; padding:20px; background:#f8f7f4; font-size:15px; overflow-wrap:anywhere; }
+            .fulfillment-page .branch-card { padding:20px; margin-top:16px; background:#fff; border:1px solid #e5e2dd; border-radius:4px; }
+            .fulfillment-page .branch-title { font-size:18px; margin:0 0 8px; }
+            .fulfillment-page .branch-address { font-size:14px; color:#707070; margin:0; }
+            .fulfillment-page #results { margin-top:20px; font-size:14px; }
+            .fulfillment-page .no-branch { color:#c92027; }
+            @media(max-width:760px) {
+                .fulfillment-header > div { padding:12px 20px; }
+                .fulfillment-header .site-navbar > button:first-child { font-size:26px !important; padding-left:0 !important; }
+                .fulfillment-header .site-navbar > div { gap:0 !important; flex-wrap:wrap; }
+                .fulfillment-header button { padding:10px !important; font-size:13px !important; }
+                .fulfillment-shell { padding:28px 20px 48px; }
+                .fulfillment-methods, .fulfillment-layout { grid-template-columns:1fr; gap:20px; }
+                .fulfillment-page .fulfillment-method, .fulfillment-panel { padding:24px; }
+            }
+            @media(max-width:480px) {
+                .fulfillment-header .site-navbar > div { width:100%; justify-content:flex-end; }
+            }
+        """),
+        Div(Div(navbar(), cls="fulfillment-header"),
+            Div("อร่อยได้ในแบบคุณ · รับที่ร้าน หรือจัดส่งถึงบ้าน", cls="fulfillment-banner"),
+            Div(A("← กลับหน้าหลัก" if selection else "← เปลี่ยนช่องทางรับอาหาร",
+                  href="/" if selection else "/selectdelivery", cls="fulfillment-back"),
+                Header(P("OUR SERVICE / " + ("ORDER OPTIONS" if selection else "ORDER DETAILS"), cls="fulfillment-eyebrow"),
+                       H1(title), P(subtitle, cls="fulfillment-muted"), cls="fulfillment-intro"),
+                content, cls="fulfillment-shell"), cls="fulfillment-page"),
+    )
+
 
 @rt('/selectdelivery')
 def order_type():
-    grid_content = [ navbar()
-
-    ]
-    grid_content.append(Div(
-        # Navbar - แยกออกจาก Order Container
-        
-
-        # Title Section
-        H1("เลือกช่องทางการรับออเดอร์", cls="title"),
-
-        # Styling for the page
-        Style("""
-            @import url('https://fonts.googleapis.com/css2?family=TH+Sarabun:wght@400;500;700&display=swap');
-
-            html, body {
-                background: #ffffff;
-                min-height: 100vh;
-                margin: 0;
-                padding: 0;
-                font-family: 'TH Sarabun', sans-serif;
-                display: flex;
-                flex-direction: column;  /* ปรับให้เนื้อหาตั้งอยู่ในรูปแบบคอลัมน์ */
-                text-align: center;
-                overflow: hidden;
-            }
-
-            .title {
-                font-size: 40px;
-                font-weight: 700;
-                color: #000000;
-                margin-top: 150px;  # ลดระยะห่างจากด้านบนให้เหมาะสม
-            }
-
-            .order-container {
-                width: 400px;
-                padding: 400px;
-                display: flex;
-                flex-direction: column;
-                align-items: center; /* จัดแนวตั้งกลาง */
-                gap: 40px;
-                height: 200px;
-                margin-top: -150px;  # ปรับให้เนื้อหาคล่องตัวมากขึ้น
-            }
-
-            .order-button1 {
-                width: 250px;
-                height: 60px;
-                font-size: 22px;
-                font-weight: bold;
-                text-align: center;
-                border: 2px solid #000000; /* กรอบสีดำ */
-                background: #ffffff; /* พื้นหลังสีขาว */
-                color: #000000; /* ตัวอักษรสีดำ */
-                border-radius: 10px;
-                cursor: pointer;
-                box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
-                transition: all 0.3s ease-in-out;
-                margin-left : 740px;
-                margin-top : -150px;
-            }
-
-            .order-button1:hover {
-                background: #f0f0f0; /* พื้นหลังสีเทาอ่อนเมื่อ hover */
-                transform: scale(1.05);
-                box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.3);
-            }
-
-            .order-button1:active {
-                transform: scale(0.95);
-                box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.2);
-            }
-            .order-button2 {
-                width: 250px;
-                height: 60px;
-                font-size: 22px;
-                font-weight: bold;
-                text-align: center;
-                border: 2px solid #000000; /* กรอบสีดำ */
-                background: #ffffff; /* พื้นหลังสีขาว */
-                color: #000000; /* ตัวอักษรสีดำ */
-                border-radius: 10px;
-                cursor: pointer;
-                box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
-                transition: all 0.3s ease-in-out;
-                margin-left : 740px;
-            }
-
-            .order-button2:hover {
-                background: #f0f0f0; /* พื้นหลังสีเทาอ่อนเมื่อ hover */
-                transform: scale(1.05);
-                box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.3);
-            }
-
-            .order-button2:active {
-                transform: scale(0.95);
-                box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.2);
-            }
-        """),
-
-        # Order Buttons Section
+    return fulfillment_page("เลือกช่องทางการรับออเดอร์", "เลือกวิธีรับอาหารที่สะดวกสำหรับคุณ แล้วไปเลือกเมนูโปรดกัน",
         Div(
-            Button("🚚 รับที่ร้าน", onclick="window.location.href='/pickup';", cls="order-button1"),
-            Button("🏡 เดลิเวอรี่", onclick="window.location.href='/delivery';", cls="order-button2"),
-            cls="order-container"
-        )
-    )
-    )
-    return grid_content
+            A(Span("⌂", cls="fulfillment-icon", aria_hidden="true"), H2("รับที่ร้าน"),
+              P("ค้นหาสาขาใกล้คุณ แล้วรับอาหารด้วยตัวเองที่ร้าน", cls="fulfillment-muted"),
+              Span("เลือกสาขาที่รับอาหาร →", cls="fulfillment-action"), href="/pickup", cls="fulfillment-method"),
+            A(Span("→", cls="fulfillment-icon", aria_hidden="true"), H2("เดลิเวอรี่"),
+              P("ส่งความอร่อยถึงมือคุณ เพียงระบุที่อยู่จัดส่ง", cls="fulfillment-muted"),
+              Span("กรอกที่อยู่จัดส่ง →", cls="fulfillment-action"), href="/delivery", cls="fulfillment-method"),
+            cls="fulfillment-methods"), selection=True)
+
 
 @rt('/pickup')
-def get():
-    
+def pickup_page():
     member = session.get_current_user()
     if not member:
         return Redirect("/fail")
-    
-    pickup = session.get_current_user().add_order_type(PickUp())
-    return Titled("เลือกสาขา",
-    Style(""" 
-        @import url('https://fonts.googleapis.com/css2?family=TH+Sarabun:wght@400;500;700&display=swap');
+    if not isinstance(member.get_order_type(), PickUp):
+        member.add_order_type(PickUp())
+    selected = member.get_order_type().get_selected_branch()
+    return fulfillment_page("เลือกสาขาที่รับอาหาร", "ค้นหาสาขาด้วยรหัสไปรษณีย์ แล้วเลือกสาขาที่คุณสะดวกไปรับ",
+        Div(Section(H2("ค้นหาสาขา"), P("กรอกรหัสไปรษณีย์ในพื้นที่ที่ต้องการรับอาหาร", cls="fulfillment-muted"),
+                Form(Label("รหัสไปรษณีย์", fr="postcode"),
+                     Input(id="postcode", name="postcode", placeholder="เช่น 10150", required=True,
+                           inputmode="numeric", pattern="[0-9]{5}", maxlength="5", autocomplete="postal-code"),
+                     Button("ค้นหาสาขา", type="submit", cls="fulfillment-primary"),
+                     hx_get="/search", hx_target="#results", hx_trigger="submit, input changed delay:300ms from:input"),
+                Div(id="results", aria_live="polite"), cls="fulfillment-panel"),
+            Aside(H2("สาขาที่เลือก"), P("เลือกสาขาจากผลการค้นหา", cls="fulfillment-muted"),
+                  Div(B(f"{selected['district']} ({selected['address']})" if selected else "ยังไม่ได้เลือกสาขา"), id="selected_branch", cls="fulfillment-selection", aria_live="polite"),
+                  A("เลือกเมนูอาหาร →", href="/menu", cls="fulfillment-primary"), cls="fulfillment-selected"),
+            cls="fulfillment-layout"))
 
-        html, body {
-            background: #ffffff;
-            min-height: 100vh;
-            margin: 0;
-            padding: 0;
-            font-family: 'TH Sarabun', sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-            margin-top: -30px;
-        }
-
-        .title {
-            font-size: 40px;
-            font-weight: 700;
-            color: #000000;
-            text-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
-        }
-
-        .search-container {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 20px;
-            margin-top: 30px;
-        }
-        .select-button {
-            width: 180px; /* ลดขนาดความกว้างลง */
-            height: 50px; /* ขนาดความสูงคงที่ */
-            font-size: 20px;
-            font-weight: bold;
-            text-align: center;
-            border: 1px solid #000000; /* กรอบสีดำ */
-            background: #ffffff; /* พื้นหลังสีขาว */
-            color: #000000; /* ตัวอักษรสีดำ */
-            border-radius: 8px; /* มุมปุ่มโค้ง */
-            cursor: pointer;
-            box-shadow: 0px 5px 10px rgba(0, 0, 0, 0.2); /* เงาลดลงเล็กน้อย */
-            transition: all 0.3s ease-in-out;
-        }
-
-        .select-button:hover {
-            background: #f0f0f0;
-            transform: scale(1.05);
-            box-shadow: 0px 8px 15px rgba(0, 0, 0, 0.3);
-        }
-
-        .select-button:active {
-            transform: scale(0.95);
-            box-shadow: 0px 3px 5px rgba(0, 0, 0, 0.2);
-        }
-          
-        .input-postcode {
-            width: 400px !important;
-            height: 50px !important;
-            font-size: 18px !important;
-            padding: 10px !important;
-            border-radius: 10px !important;
-            border: 1px solid #ddd !important;
-            background-color: #ffffff !important;
-            color: #333 !important;
-        }
-
-        .input-postcode::placeholder {
-            color: #333 !important;
-        }
-
-        .input-postcode:focus {
-            background-color: #f0f0f0 !important;
-            border: 1px solid #000 !important;
-        }
-
-        .search-button {
-            width: 250px;
-            height: 60px;
-            font-size: 22px;
-            font-weight: bold;
-            text-align: center;
-            border: 2px solid #000000;
-            background: #ffffff;
-            color: #000000;
-            border-radius: 10px;
-            cursor: pointer;
-            box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
-            transition: all 0.3s ease-in-out;
-        }
-
-        .search-button:hover {
-            background: #f0f0f0;
-            transform: scale(1.05);
-            box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        .search-button:active {
-            transform: scale(0.95);
-            box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.2);
-        }
-
-        .branch-card {
-            background: white;
-            padding: 20px;
-            margin: 15px auto;
-            width: 90%;
-            max-width: 500px;
-            border-radius: 12px;
-            box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.1);
-            border-left: 5px solid #ff0000;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .branch-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0px 6px 12px rgba(0, 0, 0, 0.2);
-        }
-
-        .done-button {
-            width: 250px;
-            height: 60px;
-            font-size: 22px;
-            font-weight: bold;
-            text-align: center;
-            border: 2px solid #000000;
-            background: #ffffff;
-            color: #000000;
-            border-radius: 10px;
-            cursor: pointer;
-            box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
-            transition: all 0.3s ease-in-out;
-            margin-top: 20px;
-        }
-
-        .done-button:hover {
-            background: #f0f0f0;
-            transform: scale(1.05);
-            box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        .done-button:active {
-            transform: scale(0.95);
-            box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.2);
-        }
-
-        .no-branch-card {
-            color: #333;
-            margin: 10px;
-            margin-top: 40px;
-            margin-bottom: 40px;
-            font-family: 'TH Sarabun', sans-serif;
-        }
-    """),
-    Form(Input(id="postcode", placeholder="กรอกรหัสไปรษณีย์...", name="postcode",required=True, cls="input-postcode"), 
-         hx_get="/search", target_id="results", hx_trigger="keyup delay:200ms"),
-    Div(id="results"),
-    H3("สาขาที่เลือก :"),
-    Div(B("ยังไม่ได้เลือกสาขา"), id="selected_branch", cls="no-branch-card"),
-    Button("เสร็จสิ้น", onclick="window.location.href='/menu';", cls="done-button"),
-)
 
 @rt('/delivery')
 def delivery_page():
-    
     member = session.get_current_user()
     if not member:
         return Redirect("/fail")
-    
-    session.get_current_user().add_order_type(Delivery())
-    return Titled("ที่อยู่จัดส่ง",
-        Style("""
-                @import url('https://fonts.googleapis.com/css2?family=TH+Sarabun:wght@400;500;700&display=swap');
-
-                html, body {
-                    background: #ffffff;
-                    min-height: 100vh;
-                    margin: 0;
-                    padding: 0;
-                    font-family: 'TH Sarabun', sans-serif;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    text-align: center;
-                    margin-top: -100px;
-                }
-
-                .title {
-                    font-size: 40px;
-                    font-weight: 700;
-                    color: #000000;
-                    text-shadow: 0 0 5px rgba(0, 0, 0, 0.3);
-                }
-
-                .delivery-container {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    gap: 20px;
-                    margin-top: 100px;
-                }
-
-                .delivery-input {
-                    width: 400px;
-                    height: 50px;
-                    font-size: 18px;
-                    padding: 10px;
-                    border-radius: 10px;
-                    border: 1px solid #ddd;
-                    background-color: #ffffff;
-                    color: #333;
-                    box-sizing: border-box;
-                    margin-top: 70px;
-                }
-
-                .delivery-input::placeholder {
-                    color: #333;
-                }
-
-                .delivery-input:focus {
-                    background-color: #f0f0f0;
-                    border: 1px solid #000;
-                }
-
-                .done-button {
-                    width: 250px;
-                    height: 60px;
-                    font-size: 22px;
-                    font-weight: bold;
-                    text-align: center;
-                    border: 2px solid #000000;
-                    background: #ffffff;
-                    color: #000000;
-                    border-radius: 10px;
-                    cursor: pointer;
-                    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
-                    transition: all 0.3s ease-in-out;
-                    margin-top: 50px;
-                }
-
-                .done-button:hover {
-                    background: #f0f0f0;
-                    transform: scale(1.05);
-                    box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.3);
-                }
-
-                .done-button:active {
-                    transform: scale(0.95);
-                    box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.2);
-                }
-
-                .address-confirmation {
-                    font-size: 18px;
-                    color: #333;
-                    margin-top: 20px;
-                    font-weight: 500;
-                }
-        """),
-        Form(
-            Input(id="delivery_address", placeholder="กรอกที่อยู่จัดส่งของคุณ...", name="address",required=True, cls="delivery-input"),
-            Button("ยืนยัน", cls="done-button"),
-            method='post',
-            action="/submit_address"
-        ),
-        Div(id="address_confirmation"),
-    )
+    if not isinstance(member.get_order_type(), Delivery):
+        member.add_order_type(Delivery())
+    return fulfillment_page("ที่อยู่จัดส่ง", "ระบุที่อยู่ให้ครบถ้วน เพื่อให้เราจัดส่งอาหารถึงคุณ",
+        Div(Section(H2("รายละเอียดที่อยู่"), P("กรอกที่อยู่พร้อมรหัสไปรษณีย์ของคุณ", cls="fulfillment-muted"),
+                Form(Label("ที่อยู่จัดส่ง", fr="delivery_address"),
+                     Textarea(member.get_order_type().get_address() or "", id="delivery_address", name="address", required=True, rows="5",
+                              placeholder="บ้านเลขที่ หมู่บ้าน / อาคาร ถนน แขวง / ตำบล เขต / อำเภอ จังหวัด และรหัสไปรษณีย์",
+                              autocomplete="street-address", aria_describedby="delivery-hint"),
+                     P("ระบุชื่ออาคาร ชั้น หรือจุดสังเกตเพิ่มเติม เพื่อให้ค้นหาที่อยู่ได้ง่ายขึ้น", id="delivery-hint", cls="fulfillment-muted"),
+                     Button("ยืนยันที่อยู่และเลือกเมนู →", type="submit", cls="fulfillment-primary"),
+                     method="post", action="/submit_address"),
+                Div(id="address_confirmation", aria_live="polite"), cls="fulfillment-panel"),
+            Aside(H2("จัดส่งถึงหน้าประตู"),
+                  P("ตรวจสอบบ้านเลขที่และรหัสไปรษณีย์ก่อนยืนยัน จากนั้นเลือกอาหารที่คุณต้องการได้เลย", cls="fulfillment-muted"),
+                  A("รับอาหารที่ร้านแทน →", href="/pickup", cls="fulfillment-back", style="margin-top:24px"),
+                  cls="fulfillment-selected"), cls="fulfillment-layout"))
 
 
-
-@rt('/submit_address')
+@rt('/submit_address', methods=['POST'])
 def submit_address(address: str):
-    
-    
-    delivery = session.get_current_user().get_order_type()
-    
+    member = session.get_current_user()
+    if not isinstance(member, Member):
+        return Redirect('/fail')
+    delivery = Delivery()
+    delivery.set_address(address.strip())
+    if not address.strip() or delivery.get_branch() is None:
+        return fulfillment_page("ตรวจสอบที่อยู่จัดส่ง", "กรุณาระบุที่อยู่พร้อมรหัสไปรษณีย์ในพื้นที่ให้บริการ",
+            Div(P(address), A("กลับไปแก้ไขที่อยู่", href="/delivery")))
+    member.add_order_type(delivery)
+    return Redirect('/menu')
 
-    delivery.set_address(address)
-    
-    print(f"Address entered: {delivery.get_address()}")
-    return Redirect("/menu")
-    
 @rt('/select_delivery')
 def select_delivery():
     delivery = session.get_current_user().get_order_type()
@@ -2685,13 +2376,16 @@ def get():
         )   
     return grid_content
 
-@rt('/select_branch')
-def select_branch(district: str, address: str ):
-    pickup = session.get_current_user().get_order_type()
-    branch_info = {"district": district , "address": address}
-    if branch_info == None:
-        Redirect("/pickup")
-    pickup.set_branch(branch_info)
+@rt('/select_branch', methods=['POST'])
+def select_branch(district: str, address: str):
+    member = session.get_current_user()
+    if not isinstance(member, Member):
+        return Redirect('/fail')
+    pickup = PickUp()
+    pickup.set_branch({"district": district, "address": address})
+    if pickup.get_branch() is None:
+        return B("ไม่พบสาขาที่เลือก กรุณาค้นหาสาขาอีกครั้ง")
+    member.add_order_type(pickup)
     return B(f"{district} ({address})")
 
 @rt("/login")
@@ -3020,154 +2714,156 @@ def post(username: str, password: str):
 def post(name: str, surname: str, tel_number: str, email: str, username: str, password: str):
     return system.handle_authentication("register", name, surname, tel_number, email, username, password)
 
-@rt('/payment')
-def get():
-    member = session.get_current_user()
-    if member.get_order_type() == None:
-        return Redirect("/selectdelivery")
-    
-    grid_content = [navbar(), order_section()]
-    
-    grid_content.append(
-        Div(
-            Style(""" 
-                @import url('https://fonts.googleapis.com/css2?family=TH+Sarabun:wght@400;500;700&display=swap');
-
-                html, body {
-                    background: #ffffff;
-                    min-height: 100vh;
-                    margin: 0;
-                    padding: 0;
-                    font-family: 'TH Sarabun', sans-serif;
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    text-align: center;
-                }
-
-                .payment-container {
-                    display: flex;
-                    align-items: center;
-                    background: #f2f1ec;
-                    padding: 40px;
-                    border-radius: 10px;
-                    width: 80%; /* เพิ่มขนาดกล่อง */
-                    margin: auto;
-                    box-shadow: 0px 4px 10px rgba(0,0,0,0.2);
-                    flex-direction: column;
-                }
-
-                .payment-title {
-                    font-size: 60px; /* ขยายขนาดข้อความ */
-                    font-weight: 800;
-                    color: #000000;
-                    margin-bottom: 50px;
-                }
-
-                .payment-options {
-                    display: flex;
-                    flex-direction: row;
-                    align-items: center;
-                    justify-content: center;
-                    gap: 80px;
-                }
-
-                .payment-button {
-                    width: 300px;
-                    height: 60px;
-                    font-size: 18px;
-                    font-weight: bold;
-                    text-align: center;
-                    border: none;
-                    background: rgb(209, 209, 209);
-                    color: rgb(0, 0, 0);
-                    border-radius: 50px;
-                    cursor: pointer;
-                    box-shadow: 0px 5px 15px rgba(0, 0, 0, 0.2);
-                    transition: all 0.3s ease-in-out;
-                }
-
-                .payment-button:hover {
-                    background: rgb(253, 255, 239);
-                    transform: scale(1.01);
-                    box-shadow: 0px 8px 20px rgba(0, 0, 0, 0.3);
-                }
-
-                .payment-button:active {
-                    transform: scale(0.95);
-                    box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.2);
-                }
-            """),
-            H1("วิธีการชำระเงิน", cls="payment-title"),
-            Div(
-                A(Button("🧾 ชำระด้วย QR Code", cls="payment-button"), href='/QR'),
-                A(Button("💳 ชำระเงินด้วยบัตรเครดิต", cls="payment-button"), href='/account_num'),
-                cls="payment-options"
-            ),
-            cls="payment-container"
-        )
+def checkout_page(title, subtitle, content, qr=False, summary=False):
+    return (
+        Title(f"{title} | OUR SERVICE"),
+        Style("""
+            @import url('https://fonts.googleapis.com/css2?family=K2D:wght@400;500;600;700&display=swap');
+            body:has(.checkout-page) { margin:0; background:#fff; }
+            main.container:has(.checkout-page) { width:100%; max-width:none; padding:0; }
+            .checkout-page { color-scheme:light; min-height:100vh; background:#fff; color:#202020;
+                font-family:'K2D',sans-serif; font-size:16px; --pico-color:#202020;
+                --pico-h1-color:#202020; --pico-h2-color:#202020; --pico-h3-color:#202020; }
+            .checkout-page *, .checkout-page *::before, .checkout-page *::after { box-sizing:border-box; }
+            .checkout-page a { color:#c92027; text-decoration:none; }
+            .checkout-page button { font-family:inherit; }
+            .checkout-page :is(a,button):focus-visible { outline:3px solid #c92027; outline-offset:4px; }
+            .checkout-header > div { max-width:1280px; margin:auto; padding:12px 32px; flex-wrap:wrap; }
+            .checkout-header button { width:auto; margin:0; }
+            .checkout-order { background:#202020; }
+            .checkout-order > div { width:100% !important; max-width:1280px !important; height:auto !important;
+                min-height:66px; margin:auto !important; padding:12px 32px !important; gap:20px;
+                flex-wrap:wrap; background:#202020 !important; }
+            .checkout-order h2, .checkout-order h5 { margin:0 !important; font-size:15px; }
+            .checkout-order button { width:auto; margin:0; background:#c92027 !important; color:#fff !important;
+                font-size:14px !important; border-radius:3px; }
+            .checkout-shell { max-width:1216px; margin:auto; padding:40px 32px 72px; }
+            .checkout-back { display:inline-block; font-size:14px; font-weight:600; margin-bottom:28px; }
+            .checkout-back:hover { text-decoration:underline; }
+            .checkout-eyebrow { color:#c92027; font-size:12px; font-weight:700; letter-spacing:.12em; margin:0 0 12px; }
+            .checkout-intro { margin-bottom:32px; }
+            .checkout-intro h1 { font-size:clamp(30px,4vw,48px); line-height:1.3; margin:0 0 12px; }
+            .checkout-muted { color:#707070; font-size:14px; margin:0; line-height:1.8; }
+            .checkout-page h2 { font-size:22px; margin:0 0 12px; }
+            .checkout-methods { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; }
+            .checkout-page .checkout-method { display:flex; flex-direction:column; align-items:flex-start; gap:12px;
+                padding:32px; border:1px solid #e5e2dd; border-top:3px solid #c92027; border-radius:4px;
+                background:#f8f7f4; color:#202020; transition:background .15s,border-color .15s; }
+            .checkout-method:hover { background:#fff5f3; border-color:#c92027; }
+            .checkout-method h2 { margin:4px 0 0; }
+            .checkout-icon { display:grid; place-items:center; width:64px; height:56px; background:#fff;
+                border:1px solid #e5e2dd; border-radius:4px; color:#c92027; font-weight:700; font-size:18px; }
+            .checkout-method-action { margin-top:16px; color:#c92027; font-weight:600; }
+            .checkout-qr-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:48px; align-items:start; }
+            .checkout-qr-panel { padding:32px; background:#f8f7f4; border:1px solid #e5e2dd; border-radius:4px; text-align:center; }
+            .checkout-qr-frame { width:min(100%,280px); margin:24px auto; padding:20px; background:#fff; border:1px solid #e5e2dd; border-radius:4px; }
+            .checkout-qr-frame img { display:block; width:100%; height:auto; aspect-ratio:1; object-fit:contain; }
+            .checkout-summary { border-top:3px solid #c92027; padding-top:28px; min-width:0; }
+            .checkout-amount { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;
+                gap:12px; padding:20px 0; margin-bottom:24px; border-bottom:1px solid #e5e2dd; }
+            .checkout-amount strong { font-size:32px; color:#c92027; font-variant-numeric:tabular-nums; }
+            .checkout-instructions { padding-left:24px; margin:16px 0 28px; color:#707070; font-size:15px; }
+            .checkout-instructions li { padding-left:6px; margin-bottom:12px; }
+            .checkout-page .checkout-primary { display:block; width:100%; margin:0; padding:15px 20px;
+                border:1px solid #c92027; background:#c92027; color:#fff; border-radius:4px; font-size:16px; font-weight:600; }
+            .checkout-primary:hover { background:#a8171d; border-color:#a8171d; }
+            .checkout-secondary { display:block; text-align:center; margin-top:18px; font-size:14px; }
+            .checkout-secondary:hover { text-decoration:underline; }
+            @media(max-width:850px) {
+                .checkout-header > div { padding:12px 20px; }
+                .checkout-header .site-navbar > button:first-child { font-size:26px !important; padding-left:0 !important; }
+                .checkout-header .site-navbar > div { gap:0 !important; flex-wrap:wrap; }
+                .checkout-header button { padding:10px !important; font-size:13px !important; }
+                .checkout-qr-layout { gap:24px; }
+            }
+            @media(max-width:600px) {
+                .checkout-shell { padding:28px 20px 48px; }
+                .checkout-header .site-navbar > div { width:100%; justify-content:flex-end; }
+                .checkout-order > div { padding:14px 20px !important; gap:10px; }
+                .checkout-order h2, .checkout-order h5 { font-size:12px; }
+                .checkout-methods, .checkout-qr-layout { grid-template-columns:1fr; }
+                .checkout-methods { gap:16px; }
+                .checkout-page .checkout-method, .checkout-qr-panel { padding:24px; }
+            }
+            @media(prefers-reduced-motion:reduce) { .checkout-method { transition:none; } }
+        """),
+        Div(Div(navbar(), cls="checkout-header"), Div(order_section(), cls="checkout-order"),
+            Div(A("← กลับหน้าหลัก" if summary else "← เลือกวิธีชำระเงิน" if qr else "← กลับไปตะกร้า", href="/" if summary else "/payment" if qr else "/basket", cls="checkout-back"),
+                Header(P("OUR SERVICE / " + ("ORDER SUMMARY" if summary else "QR PAYMENT" if qr else "PAYMENT"), cls="checkout-eyebrow"),
+                       H1(title), P(subtitle, cls="checkout-muted"), cls="checkout-intro"),
+                content, cls="checkout-shell"), cls="checkout-page"),
     )
-    
-    return grid_content
+
+
+def fulfillment_redirect(member):
+    order_type = member.get_order_type()
+    if isinstance(order_type, Delivery):
+        if not order_type.get_address() or order_type.get_branch() is None:
+            return Redirect('/delivery')
+    elif isinstance(order_type, PickUp):
+        if order_type.get_branch() is None:
+            return Redirect('/pickup')
+    else:
+        return Redirect('/selectdelivery')
+    return None
+
+
+@rt('/payment')
+def payment_page():
+    member = session.get_current_user()
+    if not isinstance(member, Member):
+        return Redirect('/menu' if isinstance(member, Manager) else '/fail')
+    redirect = fulfillment_redirect(member)
+    if redirect is not None:
+        return redirect
+    return checkout_page("วิธีการชำระเงิน", "เลือกวิธีชำระเงินที่สะดวกสำหรับคุณ",
+        Div(
+            A(Span("QR", cls="checkout-icon", aria_hidden="true"), H2("ชำระด้วย QR Code"),
+              P("สแกน QR Code เพื่อชำระเงิน", cls="checkout-muted"),
+              Span("ชำระด้วย QR Code →", cls="checkout-method-action"), href="/QR", cls="checkout-method"),
+            A(Span("CARD", cls="checkout-icon", aria_hidden="true"), H2("ชำระด้วยบัตรเครดิต"),
+              P("กรอกข้อมูลบัตรเพื่อดำเนินการชำระเงิน", cls="checkout-muted"),
+              Span("ชำระด้วยบัตรเครดิต →", cls="checkout-method-action"), href="/account_num", cls="checkout-method"),
+            cls="checkout-methods"),
+    )
+
 
 @rt('/QR')
-def get():
+def qr_payment_page():
     member = session.get_current_user()
-    grid_content = [
-            navbar(),  # เรียกใช้ Navbar
-            order_section(),  # เรียกใช้ Order Section
-        ]
-
-    grid_content.append(
+    if not isinstance(member, Member):
+        return Redirect('/menu' if isinstance(member, Manager) else '/fail')
+    redirect = fulfillment_redirect(member)
+    if redirect is not None:
+        return redirect
+    return checkout_page("ชำระด้วย QR Code", "ตรวจสอบยอดชำระก่อนยืนยันคำสั่งซื้อ",
         Div(
-            # พื้นหลังสี่เหลี่ยม
-                Div(
-            # รูปภาพ (อยู่ซ้าย)
-                Img(
-                    id="image",
-                    src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/QR_code_for_mobile_English_Wikipedia.svg/330px-QR_code_for_mobile_English_Wikipedia.svg.png",
-                    style={
-                    "width": "200px",  # กำหนดขนาดรูป
-                    "height": "200px",
-                    "object-fit": "contain",  # ป้องกันภาพผิดสัดส่วน
-                    "margin-right": "20px"  # เว้นระยะระหว่างรูปกับข้อความ
-                    }
-                ),
-                # ข้อความ (อยู่ขวา)
-                Div(
-                    P('สแกนเพื่อชำระเงิน', style ='font-size: 50px'),
-                    P(f"Price: {member.get_current_basket().calculate_total_price()}"),
-                    Button('ชำระเงินเสร็จสิ้น',hx_post=f'/total/order/{member.get_id}',style="background-color: green; color: white; padding: 10px 20px; border: none;")
-                   
-                    
-                ),
-                style={
-                    "display": "flex",
-                    "align-items": "center",  # จัดให้รูปและข้อความอยู่ตรงกลางแนวตั้ง
-                    "background": "#f2f1ec",  # สีพื้นหลัง (สีแดง)
-                    "padding": "20px",  # เพิ่มระยะห่างภายใน
-                    "border-radius": "10px",  # ขอบมน
-                    "width": "60%",  # กำหนดความกว้างของกล่อง
-                    "margin": "auto",  # จัดให้อยู่ตรงกลางของหน้าจอ
-                    "box-shadow": "0px 4px 10px rgba(0,0,0,0.2)"  # เพิ่มเงาให้ดูสวยงาม
-                }
-            ),
-            style={
-                "display": "flex",
-                "justify-content": "center",  # จัดให้อยู่กลางหน้าจอ
-                "align-items": "center",
-                "height": "100vh",  # ให้เต็มจอแนวตั้ง
-                "background": "#f4f4f4"  # สีพื้นหลังของหน้าจอ
-            }
-        )
-        )   
-    return grid_content
+            Section(P("QR CODE", cls="checkout-eyebrow"), H2("สแกนเพื่อชำระเงิน"),
+                Div(Img(src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/QR_code_for_mobile_English_Wikipedia.svg/330px-QR_code_for_mobile_English_Wikipedia.svg.png",
+                        alt="QR Code ตัวอย่าง", width="240", height="240"), cls="checkout-qr-frame"),
+                P("QR Code ตัวอย่างสำหรับสาธิต", cls="checkout-muted"), cls="checkout-qr-panel"),
+            Section(H2("รายละเอียดการชำระเงิน"),
+                Div(Span("ยอดชำระทั้งหมด"), Strong(f"฿{member.get_current_basket().calculate_payable_total():,.2f}"), cls="checkout-amount"),
+                H2("ขั้นตอนการชำระเงิน"),
+                Ol(Li("เปิดแอปธนาคาร แล้วเลือกสแกน QR Code"),
+                   Li("ตรวจสอบยอดเงินและข้อมูลผู้รับก่อนชำระ"),
+                   Li("เมื่อชำระแล้ว กดปุ่มยืนยันด้านล่าง"), cls="checkout-instructions"),
+                Form(Button("ชำระเงินเสร็จสิ้น →", type="submit", cls="checkout-primary"),
+                     method="post", action=f'/total/order/{member.get_id}'),
+                A("เปลี่ยนวิธีชำระเงิน", href="/payment", cls="checkout-secondary"), cls="checkout-summary"),
+            cls="checkout-qr-layout"), qr=True,
+    )
+
 
 @rt('/account_num')
 def get():
     member = session.get_current_user()
-    
+    if not isinstance(member, Member):
+        return Redirect('/menu' if isinstance(member, Manager) else '/fail')
+    redirect = fulfillment_redirect(member)
+    if redirect is not None:
+        return redirect
+
     grid_content = [
         navbar(),  # Navbar
         order_section(),  # Order Section
@@ -3263,7 +2959,7 @@ def get():
             }
         """),
         H1("ชำระเงินด้วยบัตรเครดิต", cls="register-title"),
-        P(f"Price: {member.get_current_basket().calculate_total_price()}"),
+        P(f"Price: ฿{member.get_current_basket().calculate_payable_total():,.2f}"),
         Form(
             Div(
                 Label("ชื่อ:", cls="label"),
@@ -3303,97 +2999,101 @@ def post(member_id: str):
 @rt('/summary')
 def summary_page():
     member = session.get_current_user()
-    order_delivery_by = None
+    if not isinstance(member, Member):
+        return Redirect('/menu' if isinstance(member, Manager) else '/fail')
     order_type = member.get_order_type()
+    redirect = fulfillment_redirect(member)
+    if redirect is not None:
+        return redirect
+    if not member.get_current_basket().check_empty():
+        return Redirect('/basket')
+
+    user_info, items, total_price, _, discount_applied = system.summary_order()
     branch = order_type.get_branch()
-    branch_info = branch.get_branch_address()
-
-    bg_color = "#fffafa"
-    text_color = "#000000"
-    card_bg = "#d4d4d4"
-    card_text = "#000000"
-    border_color = "#ffffff"
-
-    summary = system.summary_order()
-    if not summary:
-        return H1("Member not found", style=f"color: red; text-align: center;")
     rider = None
-    if isinstance(order_type,Delivery):
-        
-        rider = system.find_free_rider(order_type)
-        rider_name = rider.get_account_name()
-        member_address = order_type.get_address()
-        order_delivery_by = Div(P(f"Delivery by: {rider_name}", style=f"color: {card_text};"),
-        P(f"FROM BRANCH: {branch_info}", style=f"color: {card_text};"),
-        P(f"Address: {member_address}", style=f"color: {card_text};"))
-        type = "Delivery"
-        if rider == "Busy":
-            order_delivery_by = P(f"PLEASE WAIT FOR RIDER", style=f"color: {card_text};"),
-
-    elif isinstance(order_type,PickUp):
-        order_delivery_by = P(f"Branch: {branch_info}", style=f"color: {card_text};"),
-        type = "Pickup At Store"
-
+    delivery_details = []
+    if isinstance(order_type, Delivery):
+        assigned_rider = system.find_free_rider(order_type)
+        rider = None if assigned_rider == "Busy" else assigned_rider
+        delivery_details = [
+            Div(Span("ที่อยู่จัดส่ง"), P(order_type.get_address()), cls="summary-detail summary-wide"),
+            Div(Span("ผู้จัดส่ง"), P(rider.get_account_name() if rider else "กำลังรอไรเดอร์ว่าง"), cls="summary-detail"),
+        ]
     order = member.create_order_history(rider)
-    manage_stock = system.manage_stock(branch)
+    system.manage_stock(branch)
 
-    user_info, items, total_price, order_type, discount_applied = summary
+    rows = []
+    for item in items:
+        product, quantity = item["name"], int(item["quantity"])
+        details = []
+        if isinstance(product, (Drink, Savory)) and product.get_select() is not None:
+            label = "ระดับความหวาน" if isinstance(product, Drink) else "ระดับความเผ็ด"
+            details.append(P(f"{label}: {product.get_select()}", cls="checkout-muted"))
+        if isinstance(product, Boxset):
+            details.append(P(f"เมนูที่เลือก: {product.get_selected_menu()}", cls="checkout-muted"))
+        rows.append(Li(
+            Div(H3(product.get_name()), *details,
+                P(f"฿{float(product.get_price()):,.2f} / ชิ้น", cls="checkout-muted")),
+            Span(f"× {quantity}", cls="summary-quantity"),
+            Strong(f"฿{float(product.get_price()) * quantity:,.2f}", cls="summary-line-price"),
+            cls="summary-item"))
 
-    
-    
-    member_info_group = Card(
-        H2("Customer Information", style=f"margin-bottom: 15px; color: #000000;"),
+    return checkout_page("สรุปคำสั่งซื้อ", "ขอบคุณที่ใช้บริการ ตรวจสอบรายการอาหารและรายละเอียดการรับอาหารได้ด้านล่าง",
         Div(
-            P(f"Name: {user_info[0]} {user_info[1]}", style=f"color: {card_text};"),
-            P(f"Order Type: {type}", style=f"color: {card_text};"),
-            P(f"Phone Number: {user_info[3]}", style=f"color: {card_text};"),
-            P(f"Order ID: {order.get_order_id()}", style=f"color: {card_text};"),
-            order_delivery_by,
-            style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;"
-        ),
-        style=f"padding: 20px; margin-bottom: 20px; background-color: {card_bg}; border: 1px solid {border_color}; border-radius: 10px;"
+            Style("""
+                .summary-receipt { display:flex; align-items:center; justify-content:space-between; gap:16px;
+                    flex-wrap:wrap; padding:20px 24px; margin-bottom:32px; background:#202020; color:#fff; border-radius:4px; }
+                .summary-receipt p { margin:0; color:#fff; font-size:14px; }
+                .summary-receipt strong { font-size:22px; font-variant-numeric:tabular-nums; }
+                .summary-layout { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:40px; align-items:start; }
+                .summary-layout > * { min-width:0; }
+                .summary-customer { border-top:1px solid #e5e2dd; padding-top:28px; margin-top:32px; }
+                .summary-details { display:grid; grid-template-columns:1fr 1fr; gap:20px 28px; margin-top:24px; }
+                .summary-detail > span { color:#707070; font-size:13px; }
+                .summary-detail p { margin:6px 0 0; line-height:1.7; overflow-wrap:anywhere; }
+                .summary-wide { grid-column:1 / -1; }
+                .summary-items { padding:0; margin:8px 0 0; list-style:none; }
+                .summary-items .summary-item { list-style:none; display:grid; grid-template-columns:minmax(0,1fr) auto auto;
+                    align-items:start; gap:20px; padding:22px 0; border-bottom:1px solid #e5e2dd; margin:0; }
+                .summary-item h3 { font-size:18px; margin:0 0 6px; overflow-wrap:anywhere; }
+                .summary-item p { overflow-wrap:anywhere; }
+                .summary-quantity { color:#707070; font-size:14px; white-space:nowrap; }
+                .summary-line-price { font-size:16px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+                .summary-totals { padding:28px; background:#f8f7f4; border:1px solid #e5e2dd; border-top:3px solid #c92027; border-radius:4px; }
+                .summary-price-row { display:flex; justify-content:space-between; gap:16px; margin:20px 0; font-size:14px; }
+                .summary-discount { color:#c92027; }
+                .summary-totals .checkout-amount { border-top:1px solid #e5e2dd; margin-top:24px; padding:24px 0; }
+                .summary-totals .checkout-primary { text-align:center; }
+                @media(max-width:850px) { .summary-layout { grid-template-columns:1fr; gap:28px; } }
+                @media(max-width:600px) {
+                    .summary-details { grid-template-columns:1fr; }
+                    .summary-totals { padding:24px; }
+                    .summary-items .summary-item { grid-template-columns:minmax(0,1fr) auto; gap:8px 16px; }
+                    .summary-line-price { grid-column:2; }
+                    .summary-item > div { grid-row:span 2; }
+                }
+            """),
+            Div(Div(P("หมายเลขคำสั่งซื้อ"), Strong(f"#{order.get_order_id()}")),
+                P("จัดส่งถึงที่" if isinstance(order_type, Delivery) else "รับอาหารที่สาขา"), cls="summary-receipt"),
+            Div(
+                Div(Section(H2("รายการอาหาร"), P(f"ทั้งหมด {sum(int(item['quantity']) for item in items)} ชิ้น", cls="checkout-muted"),
+                        Ul(*rows, cls="summary-items")),
+                    Section(H2("ข้อมูลการรับอาหาร"),
+                        Div(Div(Span("ชื่อผู้สั่ง"), P(f"{user_info[0]} {user_info[1]}"), cls="summary-detail"),
+                            Div(Span("เบอร์โทรศัพท์"), P(user_info[3]), cls="summary-detail"),
+                            Div(Span("สาขาที่ให้บริการ"), P(branch.get_branch_address()), cls="summary-detail summary-wide"),
+                            *delivery_details, cls="summary-details"), cls="summary-customer")),
+                Aside(H2("สรุปยอดคำสั่งซื้อ"),
+                    Div(Span("ยอดรวมรายการอาหาร"), Span(f"฿{float(total_price) + float(discount_applied):,.2f}"), cls="summary-price-row"),
+                    Div(Span("ส่วนลด"), Span(f"−฿{float(discount_applied):,.2f}"), cls="summary-price-row summary-discount"),
+                    Div(Span("ยอดรวมสุทธิ"), Strong(f"฿{float(total_price):,.2f}"), cls="checkout-amount"),
+                    A("สั่งอาหารเพิ่ม →", href="/neworder", cls="checkout-primary"),
+                    A("กลับหน้าหลัก", href="/", cls="checkout-secondary"), cls="summary-totals"),
+                cls="summary-layout"),
+        ), summary=True,
     )
 
-    basket_group = Grid(
-        *[
-            Card(
 
-                H3(item["name"].get_name(), style=f"margin-bottom: 5px; color: #000000;"),
-                P(f"Quantity: {item['quantity']} pcs", style=f"color: {card_text};"),
-                P(f"Unit Price: {item["name"].get_price()} THB", style=f"color: {card_text};"),
-                P(f"Subtotal: {int(item["name"].get_price()) * int(item['quantity'])} THB", style=f"color: {card_text};"),
-                *[
-                    P(f"Sweets Level: {item["name"].get_select()}") if (isinstance(item["name"],Drink)) and (item["name"].get_select()) else None,
-                    P(f"Spiciness Level: {item["name"].get_select()}") if (isinstance(item["name"],Savory)) and (item["name"].get_select()) else None,
-                    P(f"Select menu: {item["name"].get_selected_menu()}") if (isinstance(item["name"],Boxset)) else None
-                ],
-                style=f"padding: 15px; background-color: {card_bg}; border: 1px solid {border_color}; border-radius: 8px;"
-            )
-            for item in items
-        ],
-        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;"
-    )
-
-    H3(f"Price", style=f"margin-bottom: 10px; color:#ff3333;")
-    coupon_and_total_group = Card(
-        
-        H2(f"Discount Applied: {discount_applied} THB", style=f"color: #000000;"),
-        H2(f"Total Price: {total_price} THB", style=f"color: #000000;"),
-        style=f"padding: 20px; background-color: {card_bg}; border-radius: 10px;"
-    )
-    return Container(
-        H1("Order Summary", style=f"text-align: center; color: {text_color};"),
-        member_info_group,
-        H2("Items in Basket", style="color: #000000;"),
-        basket_group,
-        coupon_and_total_group,
-        Div(
-            Button("Back to Home", onclick="window.location='/'", style="background-color: red; color: white; padding: 10px 20px; border: none; border-radius: 5px;"),
-            Button("New Order", onclick="window.location='/neworder'", style="background-color: green; color: white; padding: 10px 20px; border: none; border-radius: 5px; margin-left: 10px;"),
-            style="text-align: center; margin-top: 20px;"
-        ),
-            style=f"padding: 30px; background-color: {bg_color};"
-        )
 @rt("/neworder")
 def get():
     member = session.get_current_user()
