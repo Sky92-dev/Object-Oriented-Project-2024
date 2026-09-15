@@ -66,7 +66,7 @@ The Class Diagram defines the structure of the system, including classes, attrib
 
 The Sequence Diagram illustrates how objects communicate with each other during important processes such as ordering food and managing the basket.
 
-## 🛠️ Technologies
+## Technologies
 
 * **Python**
 * **FastHTML**
