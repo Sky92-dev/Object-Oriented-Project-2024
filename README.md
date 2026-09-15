@@ -99,7 +99,7 @@ uvicorn main:app --reload --port 5001
 
 ```text
 http://localhost:5001
-```bash
+```
 
 ## 📸 Web Application Demo
 
